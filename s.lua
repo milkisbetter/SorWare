@@ -42,7 +42,7 @@ xpcall(function()
 				
 					if not module_bypassed then
 						pcall(function()
-							return game:GetService("Players").LocalPlayer:Kick("Please Rejoin/Retry!")
+							return print("sucki")
 						end)
 					end
 				
