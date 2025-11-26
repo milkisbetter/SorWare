@@ -1,5 +1,4 @@
-return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Options)
-    -- // SERVICES //
+return function(Window, Library, SaveManager, ThemeManager, Addons) -- FIXED: Removed Toggles, Options args
     local Players = game:GetService("Players")
     local RunService = game:GetService("RunService")
     local UserInputService = game:GetService("UserInputService")
@@ -8,9 +7,7 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
     local Camera = Workspace.CurrentCamera
     local LocalPlayer = Players.LocalPlayer
     local Mouse = LocalPlayer:GetMouse()
-    local VirtualUser = game:GetService("VirtualUser")
 
-    -- // VARIABLES //
     local FOVCircle = Drawing.new("Circle"); FOVCircle.Thickness = 1; FOVCircle.NumSides = 60; FOVCircle.Filled = false; FOVCircle.Transparency = 1; FOVCircle.Visible = false
     local CrosshairX = Drawing.new("Line"); local CrosshairY = Drawing.new("Line")
     local CrosshairCircle = Drawing.new("Circle"); local CrosshairDot = Drawing.new("Circle")
@@ -18,7 +15,6 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
     local LockedTarget = nil 
     local OriginalLighting = { Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime, GlobalShadows = Lighting.GlobalShadows, Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient }
 
-    -- // HELPER FUNCTIONS //
     local function IsVisible(targetPart)
         if not targetPart then return false end
         local origin = Camera.CFrame.Position
@@ -60,7 +56,6 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
         return closest
     end
 
-    -- // TABS //
     local Tabs = {
         Combat = Window:AddTab('Combat'),
         Visuals = Window:AddTab('Visuals'),
@@ -68,7 +63,6 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
         Settings = Window:AddTab('Settings')
     }
 
-    -- COMBAT
     local CombatBox = Tabs.Combat:AddLeftGroupbox('Aimbot')
     CombatBox:AddToggle('AimbotEnabled', { Text = 'Enabled', Default = false }):AddKeyPicker('AimbotKey', { Default = 'MB2', Text = 'Aimbot Key', Mode = 'Hold' })
     CombatBox:AddDropdown('AimbotMethod', { Values = { 'Camera', 'Mouse', 'Character' }, Default = 1, Multi = false, Text = 'Method' })
@@ -89,7 +83,6 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
     FovBox:AddToggle('ShowFOV', { Text = 'Draw FOV Circle', Default = false }):AddColorPicker('FOVColor', { Default = Color3.fromRGB(255, 255, 255) })
     FovBox:AddSlider('AimbotFOV', { Text = 'FOV Radius', Default = 100, Min = 10, Max = 800, Rounding = 0 })
 
-    -- VISUALS
     local EspBox = Tabs.Visuals:AddLeftGroupbox('ESP (Sense)')
     EspBox:AddToggle('EspEnabled', { Text = 'Master Switch', Default = false })
     EspBox:AddToggle('EspBoxes', { Text = 'Boxes', Default = false }):AddColorPicker('BoxColor', { Default = Color3.fromRGB(255, 0, 0), Title = 'Box Color' })
@@ -105,7 +98,6 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
     WorldBox:AddSlider('CamFOVAmount', { Text = 'Field of View', Default = 90, Min = 70, Max = 120, Rounding = 0 })
     WorldBox:AddToggle('TimeChanger', { Text = 'Time Changer', Default = false })
     WorldBox:AddSlider('TimeAmount', { Text = 'Time', Default = 12, Min = 0, Max = 24, Rounding = 1 })
-    
     WorldBox:AddDivider()
     WorldBox:AddToggle('Crosshair', { Text = 'Custom Crosshair', Default = false }):AddColorPicker('CrosshairColor', { Default = Color3.fromRGB(0, 255, 0) })
     WorldBox:AddDropdown('CrosshairType', { Values = { 'Line', 'Circle', 'Dot' }, Default = 1, Multi = false, Text = 'Type' })
@@ -114,7 +106,6 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
     WorldBox:AddToggle('CrosshairSpin', { Text = 'Spinning', Default = false })
     WorldBox:AddSlider('CrosshairSpinSpeed', { Text = 'Spin Speed', Default = 100, Min = 10, Max = 500, Rounding = 0 })
 
-    -- MISC
     local MoveBox = Tabs.Misc:AddLeftGroupbox('Movement')
     MoveBox:AddToggle('FlightEnabled', { Text = 'Enable Flight', Default = false }):AddKeyPicker('FlightKey', { Default = 'V', Text = 'Flight Toggle', Mode = 'Toggle' })
     MoveBox:AddSlider('FlightSpeed', { Text = 'Flight Speed', Default = 50, Min = 10, Max = 300, Rounding = 0 })
@@ -136,7 +127,6 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
     ModBox:AddToggle('JumpPowerEnabled', { Text = 'Enable JumpPower', Default = false })
     ModBox:AddSlider('JumpPowerVal', { Text = 'Jump Power', Default = 50, Min = 50, Max = 300, Rounding = 0 })
 
-    -- // LOGIC //
     local Sense = Addons.Sense
     Toggles.EspEnabled:OnChanged(function() Sense.teamSettings.enemy.enabled = Toggles.EspEnabled.Value end)
     Toggles.EspBoxes:OnChanged(function() Sense.teamSettings.enemy.box = Toggles.EspBoxes.Value end)
@@ -145,7 +135,6 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
     RunService.RenderStepped:Connect(function()
         if not LocalPlayer.Character then return end
         
-        -- Crosshair
         if Toggles.Crosshair.Value then
             local Type = Options.CrosshairType.Value
             local Center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
@@ -164,7 +153,6 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
             else CrosshairX.Visible = false; CrosshairY.Visible = false end
         else CrosshairX.Visible = false; CrosshairY.Visible = false end
 
-        -- Aimbot
         if Toggles.ShowFOV.Value and Toggles.AimbotEnabled.Value then
             FOVCircle.Visible = true; FOVCircle.Radius = Options.AimbotFOV.Value; FOVCircle.Position = Vector2.new(Mouse.X, Mouse.Y + 36); FOVCircle.Color = Options.FOVColor.Value
         else FOVCircle.Visible = false end
@@ -195,7 +183,6 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
             end
         else LockedTarget = nil end
         
-        -- Flight
         if Toggles.FlightEnabled.Value and Options.FlightKey:GetState() and LocalPlayer.Character then
              local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
              if hrp then
@@ -225,6 +212,11 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
              end
         end
         
+        if Toggles.Fullbright.Value then
+             Lighting.ClockTime = 12; Lighting.Brightness = 2; Lighting.GlobalShadows = false
+             Lighting.Ambient = Color3.new(1,1,1); Lighting.OutdoorAmbient = Color3.new(1,1,1)
+        end
+        
         if Toggles.Noclip.Value then
             if Options.NoclipMethod.Value == "Standard" then
                 for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
@@ -238,7 +230,12 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
         end
     end)
     
-    -- Setup Settings
+    UserInputService.JumpRequest:Connect(function()
+        if Toggles.InfJump.Value and LocalPlayer.Character then
+            LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState("Jumping")
+        end
+    end)
+    
     SaveManager:BuildConfigSection(Tabs.Settings)
     ThemeManager:ApplyToTab(Tabs.Settings)
 end
