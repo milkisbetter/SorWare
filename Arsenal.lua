@@ -1,4 +1,4 @@
-return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Options)
+return function(Window, Library, SaveManager, ThemeManager, Addons) -- FIXED: Removed Toggles, Options args
     local Players = game:GetService("Players")
     local RunService = game:GetService("RunService")
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -24,7 +24,6 @@ return function(Window, Library, SaveManager, ThemeManager, Addons, Toggles, Opt
     Vis:AddToggle('EspBoxes', { Text = 'Boxes', Default = false })
     Vis:AddToggle('EspNames', { Text = 'Names', Default = false })
     
-    -- Logic Loops
     task.spawn(function()
         while true do
             if Toggles.Ars_NoRecoil.Value or Toggles.Ars_NoSpread.Value or Toggles.Ars_RapidFire.Value then
