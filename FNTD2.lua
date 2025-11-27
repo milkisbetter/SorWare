@@ -1,13 +1,9 @@
 --[[
-    SORWARE - ULTIMATE EDITION (v22.0)
-    Status: PERPETUAL (Auto-Reloads on Teleport)
+    SORWARE - ULTIMATE EDITION (v23.0)
     UI: Obsidian (Dark/Ubuntu)
-    Logic: Universal + Arsenal + FNTD (Macro + Rejoin) + PF
+    Logic: Universal + Arsenal + FNTD (Priority System) + PF
     Author: Pine (Cell Block D)
 ]]
-
--- // 0. CONFIGURATION
-local ScriptURL = "https://raw.githubusercontent.com/milkisbetter/SorWare/main/SorWare.lua" -- Ensure you upload the script here!
 
 -- // 1. SERVICES
 local Services = {
@@ -23,6 +19,9 @@ local Services = {
 local LocalPlayer = Services.Players.LocalPlayer
 local Camera = Services.Workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
+
+-- // 0. REJOIN CONFIG
+local ScriptURL = "https://raw.githubusercontent.com/milkisbetter/SorWare/main/SorWare.lua" 
 
 -- // 2. LOAD LIBRARIES
 local Repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
@@ -136,17 +135,10 @@ if GameMode == "Arsenal" then
     end)
 end
 
--- [ FIVE NIGHTS TD (Macro + Auto Reload) ]
+-- [ FIVE NIGHTS TD (Priority System) ]
 if GameMode == "FNTD" then
     local Farm = Tabs.Game:AddLeftGroupbox('Macro Setup')
     
-    -- Unit Slots
-    Farm:AddLabel("Unit Slots (Auto-Filled)")
-    for i = 1, 6 do
-        Farm:AddInput('GUID'..i, { Default = '', Text = 'Slot '..i, Placeholder = 'Empty' })
-    end
-    
-    Farm:AddLabel("Positions")
     Farm:AddInput('MacroX', { Default = '1046', Text = 'Pos X', Numeric = true })
     Farm:AddInput('MacroY', { Default = '13', Text = 'Pos Y', Numeric = true })
     Farm:AddInput('MacroZ', { Default = '-821', Text = 'Pos Z', Numeric = true })
@@ -161,21 +153,26 @@ if GameMode == "FNTD" then
         end
     end)
 
-    Farm:AddToggle('Recorder', { Text = 'Record Placements', Default = false })
+    Farm:AddToggle('Recorder', { Text = 'Record Placements', Default = false, Tooltip = 'Fills empty slots with new Units' })
     Farm:AddToggle('FNTD_AutoFarm', { Text = 'Enable Macro', Default = false })
-    Farm:AddToggle('AutoRejoin', { Text = 'Reload Script on Teleport', Default = true, Tooltip = 'Re-executes SorWare after match ends' })
+    Farm:AddToggle('AutoRejoin', { Text = 'Reload on Teleport', Default = true })
 
-    -- Teleport Handler (Queue on Teleport)
     LocalPlayer.OnTeleport:Connect(function(State)
         if Library.Toggles.AutoRejoin.Value and queue_on_teleport then
-            queue_on_teleport(string.format([[
-                repeat task.wait() until game:IsLoaded()
-                pcall(function() loadstring(game:HttpGet("%s"))() end)
-            ]], ScriptURL))
+            queue_on_teleport(string.format([[repeat task.wait() until game:IsLoaded(); pcall(function() loadstring(game:HttpGet("%s"))() end)]], ScriptURL))
         end
     end)
+    
+    -- Priority Slots UI
+    local SlotsGroup = Tabs.Game:AddRightGroupbox('Unit Loadout')
+    for i = 1, 6 do
+        SlotsGroup:AddLabel("Unit " .. i)
+        SlotsGroup:AddInput('GUID'..i, { Default = '', Text = 'GUID', Placeholder = 'Waiting...' })
+        SlotsGroup:AddSlider('Prio'..i, { Text = 'Priority (1=High)', Default = i, Min = 1, Max = 6, Rounding = 0 })
+        SlotsGroup:AddDivider()
+    end
 
-    -- Remote Hook for Recorder
+    -- Recorder Hook
     local mt = getrawmetatable(game)
     local oldNamecall = mt.__namecall
     setreadonly(mt, false)
@@ -190,17 +187,15 @@ if GameMode == "FNTD" then
                     local DetectedID = arg.UnitGUID
                     local isDuplicate = false
                     for i = 1, 6 do
-                        if Library.Options["GUID"..i].Value == DetectedID then
-                            isDuplicate = true
-                            break
-                        end
+                        if Library.Options["GUID"..i].Value == DetectedID then isDuplicate = true; break end
                     end
+                    
                     if not isDuplicate then
                         for i = 1, 6 do
                             local Opt = Library.Options["GUID"..i]
                             if Opt.Value == "" then
                                 Opt:SetValue(DetectedID)
-                                Library:Notify("Recorded Unit " .. i, 3)
+                                Library:Notify("Saved to Slot " .. i, 3)
                                 break
                             end
                         end
@@ -212,7 +207,7 @@ if GameMode == "FNTD" then
     end)
     setreadonly(mt, true)
 
-    -- Macro Loop
+    -- Priority Macro Loop
     task.spawn(function()
         while true do
             if Library.Toggles.FNTD_AutoFarm.Value then
@@ -222,10 +217,7 @@ if GameMode == "FNTD" then
                      local Index = Shared.Packages:FindFirstChild("_Index")
                      if Index then
                          for _, c in ipairs(Index:GetChildren()) do
-                            if c.Name:match("^sleitnick_net@") then 
-                                Net = c:FindFirstChild("net") 
-                                break 
-                            end
+                            if c.Name:match("^sleitnick_net@") then Net = c:FindFirstChild("net"); break end
                          end
                      end
                 end
@@ -242,14 +234,25 @@ if GameMode == "FNTD" then
                         local Z = tonumber(Library.Options.MacroZ.Value) or -821
                         local TargetCF = CFrame.new(X, Y, Z)
                         
+                        -- 1. Collect Valid Units
+                        local UnitsToPlace = {}
                         for i = 1, 6 do
                             local ID = Library.Options["GUID"..i].Value
+                            local Prio = Library.Options["Prio"..i].Value
                             if ID and ID ~= "" then
-                                pcall(function() 
-                                    Place:FireServer(unpack({{PlaceCFrame = TargetCF, UnitGUID = ID}})) 
-                                end)
-                                task.wait(0.1)
+                                table.insert(UnitsToPlace, {ID = ID, Priority = Prio})
                             end
+                        end
+                        
+                        -- 2. Sort by Priority (Lower number = First)
+                        table.sort(UnitsToPlace, function(a, b) return a.Priority < b.Priority end)
+                        
+                        -- 3. Execute in Order
+                        for _, Unit in ipairs(UnitsToPlace) do
+                            pcall(function() 
+                                Place:FireServer(unpack({{PlaceCFrame = TargetCF, UnitGUID = Unit.ID}})) 
+                            end)
+                            task.wait(0.1) -- Placement delay
                         end
                     end
                     
@@ -324,11 +327,11 @@ local function GetClosestPlayer()
     return Closest
 end
 
--- // 11. MAIN LOOP (RenderStepped)
+-- // 11. MAIN LOOP
 local FOVCircle = Drawing.new("Circle"); FOVCircle.Thickness = 1; FOVCircle.NumSides = 64; FOVCircle.Filled = false; FOVCircle.Visible = false
 
 Services.RunService.RenderStepped:Connect(function()
-    -- FOV Update
+    -- FOV
     if Library.Toggles.DrawFOV.Value and Library.Toggles.AimbotEnabled.Value then
         FOVCircle.Visible = true
         FOVCircle.Radius = Library.Options.FOVRadius.Value
@@ -338,7 +341,7 @@ Services.RunService.RenderStepped:Connect(function()
         FOVCircle.Visible = false
     end
 
-    -- Universal Aimbot
+    -- Aimbot
     if Library.Toggles.AimbotEnabled.Value and Library.Options.AimbotKey:GetState() then
         local Target = GetClosestPlayer()
         if Target then
@@ -352,28 +355,22 @@ Services.RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- ARSENAL HITBOX
+    -- Arsenal Logic
     if GameMode == "Arsenal" and Library.Toggles.Ars_Hitbox.Value then
         local Size = Library.Options.Ars_HitboxSize.Value
         local Trans = Library.Options.Ars_HitboxTrans.Value
-        
         for _, v in pairs(Services.Players:GetPlayers()) do
             if v ~= LocalPlayer and v.Team ~= LocalPlayer.Team and v.Character then
                 pcall(function()
                     for _, PartName in pairs({"HeadHB", "HumanoidRootPart", "RightUpperLeg", "LeftUpperLeg"}) do
                         local Part = v.Character:FindFirstChild(PartName)
-                        if Part then
-                            Part.CanCollide = false
-                            Part.Transparency = Trans
-                            Part.Size = Vector3.new(Size, Size, Size)
-                        end
+                        if Part then Part.CanCollide = false; Part.Transparency = Trans; Part.Size = Vector3.new(Size, Size, Size) end
                     end
                 end)
             end
         end
     end
 
-    -- Arsenal Ammo
     if GameMode == "Arsenal" and Library.Toggles.Ars_InfAmmo.Value then
         pcall(function()
             LocalPlayer.PlayerGui.GUI.Client.Variables.ammocount.Value = 999
@@ -381,7 +378,6 @@ Services.RunService.RenderStepped:Connect(function()
         end)
     end
     
-    -- Arsenal Rainbow
     if GameMode == "Arsenal" and Library.Toggles.Ars_Rainbow.Value and Camera:FindFirstChild("Arms") then
          for _,v in pairs(Camera.Arms:GetDescendants()) do 
             if v:IsA("MeshPart") then v.Color = Color3.fromHSV(tick() % 5 / 5, 1, 1) end 
@@ -389,12 +385,11 @@ Services.RunService.RenderStepped:Connect(function()
     end
 end)
 
--- // 12. PHYSICS LOOP (Stepped)
+-- // 12. PHYSICS LOOP
 Services.RunService.Stepped:Connect(function()
     if not LocalPlayer.Character then return end
     local HRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     
-    -- Flight
     if Library.Toggles.FlightEnabled.Value and Library.Options.FlightKey:GetState() and HRP then
         local LV = HRP:FindFirstChild("SorWareFlight") or Instance.new("LinearVelocity", HRP)
         LV.Name = "SorWareFlight"; LV.MaxForce = 999999; LV.RelativeTo = Enum.ActuatorRelativeTo.World
@@ -418,13 +413,11 @@ Services.RunService.Stepped:Connect(function()
         end
     end
     
-    -- Speed Hack
     if Library.Toggles.SpeedHack.Value then
         local Hum = LocalPlayer.Character:FindFirstChild("Humanoid")
         if Hum then Hum.WalkSpeed = Library.Options.WalkSpeed.Value end
     end
     
-    -- Noclip
     if Library.Toggles.Noclip.Value then
         for _, v in pairs(LocalPlayer.Character:GetDescendants()) do
             if v:IsA("BasePart") then v.CanCollide = false end
@@ -432,11 +425,10 @@ Services.RunService.Stepped:Connect(function()
     end
 end)
 
--- Inf Jump
 Services.UserInputService.JumpRequest:Connect(function()
     if Library.Toggles.InfJump.Value and LocalPlayer.Character then
         LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState("Jumping")
     end
 end)
 
-Library:Notify("SorWare v22.0 Loaded (Auto-Rejoin Enabled)", 5)
+Library:Notify("SorWare v23.0 Loaded (Priority System)", 5)
