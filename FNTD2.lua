@@ -30,7 +30,7 @@ local Camera = Services.Workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
 -- // 2. CONFIG & GLOBALS
-local ScriptURL = "https://raw.githubusercontent.com/milkisbetter/SorWare/main/SorWare.lua" 
+local ScriptURL = "https://raw.githubusercontent.com/milkisbetter/SorWare/main/FNTD2.lua" 
 
 -- EXPOSE API FOR PLUGINS
 getgenv().SorWare = {
@@ -492,3 +492,4 @@ Services.UserInputService.JumpRequest:Connect(function()
 end)
 
 Library:Notify("SorWare v25.0 Loaded (Plugins Enabled)", 5)
+
