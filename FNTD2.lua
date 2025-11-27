@@ -21,7 +21,7 @@ local Camera = Services.Workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
 -- // 0. REJOIN CONFIG
-local ScriptURL = "https://raw.githubusercontent.com/milkisbetter/SorWare/main/SorWare.lua" 
+local ScriptURL = "https://raw.githubusercontent.com/milkisbetter/SorWare/refs/heads/main/FNTD2.lua" 
 
 -- // 2. LOAD LIBRARIES
 local Repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
@@ -432,3 +432,4 @@ Services.UserInputService.JumpRequest:Connect(function()
 end)
 
 Library:Notify("SorWare v23.0 Loaded (Priority System)", 5)
+
