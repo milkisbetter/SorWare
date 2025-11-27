@@ -205,3 +205,5 @@ local Group = Tab:AddLeftGroupbox("Info")
 Group:AddLabel("FPS: 60")
 Group:AddLabel("Ping: 45ms")
 Group:AddButton("Close HUD", function() MiniWindow:Unload() end)
+code
+Code
