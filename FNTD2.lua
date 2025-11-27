@@ -1,9 +1,17 @@
 --[[
-    SORWARE - ULTIMATE EDITION (v23.0)
+    SORWARE - ULTIMATE EDITION (v25.0)
+    Status: OPEN SOURCE (Plugin System)
     UI: Obsidian (Dark/Ubuntu)
-    Logic: Universal + Arsenal + FNTD (Priority System) + PF
+    Logic: Universal + Arsenal + FNTD (Macro) + PF + Plugins
     Author: Pine (Cell Block D)
 ]]
+
+-- // 0. SINGLETON CHECK
+if getgenv().SorWareLoaded then
+    game:GetService("StarterGui"):SetCore("SendNotification", {Title = "SorWare", Text = "Already loaded!", Duration = 5})
+    return
+end
+getgenv().SorWareLoaded = true
 
 -- // 1. SERVICES
 local Services = {
@@ -13,6 +21,7 @@ local Services = {
     ReplicatedStorage = game:GetService("ReplicatedStorage"),
     UserInputService = game:GetService("UserInputService"),
     VirtualUser = game:GetService("VirtualUser"),
+    HttpService = game:GetService("HttpService"),
     TeleportService = game:GetService("TeleportService")
 }
 
@@ -20,15 +29,27 @@ local LocalPlayer = Services.Players.LocalPlayer
 local Camera = Services.Workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
--- // 0. REJOIN CONFIG
-local ScriptURL = "https://raw.githubusercontent.com/milkisbetter/SorWare/refs/heads/main/FNTD2.lua" 
+-- // 2. CONFIG & GLOBALS
+local ScriptURL = "https://raw.githubusercontent.com/milkisbetter/SorWare/main/SorWare.lua" 
 
--- // 2. LOAD LIBRARIES
+-- EXPOSE API FOR PLUGINS
+getgenv().SorWare = {
+    Services = Services,
+    LocalPlayer = LocalPlayer,
+    Camera = Camera,
+    LoadedPlugins = {}
+}
+
+-- // 3. LOAD LIBRARIES
 local Repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
 local Library = loadstring(game:HttpGet(Repo .. 'Library.lua'))()
 local ThemeManager = loadstring(game:HttpGet(Repo .. 'addons/ThemeManager.lua'))()
 local SaveManager = loadstring(game:HttpGet(Repo .. 'addons/SaveManager.lua'))()
 local Sense = loadstring(game:HttpGet('https://raw.githubusercontent.com/jensonhirst/Sirius/request/library/sense/source.lua'))()
+
+-- Export Library to API
+getgenv().SorWare.Library = Library
+getgenv().SorWare.Sense = Sense
 
 -- Patch Sense
 if not Sense.EspInterface then
@@ -41,7 +62,7 @@ if not Sense.EspInterface then
     }
 end
 
--- // 3. GAME DETECTION
+-- // 4. GAME DETECTION
 local PlaceID = game.PlaceId
 local GameMode = "Universal"
 
@@ -53,21 +74,69 @@ elseif PlaceID == 292439477 or PlaceID == 299659045 then
     GameMode = "PhantomForces"
 end
 
--- // 4. UI SETUP
+-- // 5. UI SETUP
 local Window = Library:CreateWindow({
     Title = "SorWare | " .. GameMode,
     Center = true, AutoShow = true, TabPadding = 8
 })
+
+-- Export Window to API
+getgenv().SorWare.Window = Window
 
 local Tabs = {
     Game = (GameMode ~= "Universal") and Window:AddTab(GameMode) or nil,
     Combat = Window:AddTab("Combat"),
     Visuals = Window:AddTab("Visuals"),
     Movement = Window:AddTab("Movement"),
+    Plugins = Window:AddTab("Plugins"),
     Settings = Window:AddTab("Settings")
 }
 
--- // 5. VISUALS TAB
+getgenv().SorWare.Tabs = Tabs -- Allow plugins to add to existing tabs
+
+-- // 6. PLUGIN SYSTEM LOGIC
+local PluginGroup = Tabs.Plugins:AddLeftGroupbox("Plugin Loader")
+PluginGroup:AddInput("PluginURL", { Default = "", Text = "Script URL", Placeholder = "raw.githubusercontent..." })
+
+local function LoadPlugin(URL)
+    if URL == "" then Library:Notify("Invalid URL", 3); return end
+    
+    local Success, Response = pcall(function() return game:HttpGet(URL) end)
+    if not Success then Library:Notify("Failed to fetch plugin!", 5); return end
+    
+    -- Header Parsing
+    local Type = "Standard"
+    if Response:find("plugintype = gamesupport") then Type = "Game Support"
+    elseif Response:find("plugintype = customwindow") then Type = "Custom Window" end
+    
+    local RunSuccess, Err = pcall(function() loadstring(Response)() end)
+    
+    if RunSuccess then
+        Library:Notify("Loaded: " .. Type, 5)
+        table.insert(getgenv().SorWare.LoadedPlugins, {URL = URL, Type = Type})
+    else
+        warn("Plugin Error: " .. tostring(Err))
+        Library:Notify("Plugin Crashed (Check Console)", 5)
+    end
+end
+
+PluginGroup:AddButton("Execute Plugin", function()
+    LoadPlugin(Library.Options.PluginURL.Value)
+end)
+
+PluginGroup:AddDivider()
+PluginGroup:AddLabel("Loaded Plugins:")
+-- Dynamic list update isn't natively supported by this UI lib easily without refresh,
+-- but we can log to console or create a status label
+PluginGroup:AddButton("List Plugins (Console)", function()
+    print("=== SorWare Plugins ===")
+    for i, v in pairs(getgenv().SorWare.LoadedPlugins) do
+        print(i .. ". [" .. v.Type .. "] " .. v.URL)
+    end
+    Library:Notify("Check F9 Console", 3)
+end)
+
+-- // 7. VISUALS TAB
 local ESPGroup = Tabs.Visuals:AddLeftGroupbox("Sense ESP")
 ESPGroup:AddToggle("MasterESP", { Text = "Master Switch", Default = false }):OnChanged(function(v)
     Sense.teamSettings.enemy.enabled = v
@@ -79,7 +148,7 @@ ESPGroup:AddToggle("ESPName", { Text = "Names", Default = false }):OnChanged(fun
 ESPGroup:AddToggle("ESPHealth", { Text = "Health", Default = false }):OnChanged(function(v) Sense.teamSettings.enemy.healthBar = v end)
 ESPGroup:AddToggle("ESPTracer", { Text = "Tracers", Default = false }):OnChanged(function(v) Sense.teamSettings.enemy.tracer = v end)
 
--- // 6. UNIVERSAL COMBAT
+-- // 8. UNIVERSAL COMBAT
 local AimbotGroup = Tabs.Combat:AddLeftGroupbox("Aimbot")
 AimbotGroup:AddToggle("AimbotEnabled", { Text = "Enabled", Default = false })
 AimbotGroup:AddLabel("Keybind"):AddKeyPicker("AimbotKey", { Default = "E", Mode = "Hold", Text = "Aim Key" })
@@ -93,7 +162,7 @@ local FOVGroup = Tabs.Combat:AddRightGroupbox("FOV")
 FOVGroup:AddToggle("DrawFOV", { Text = "Draw FOV", Default = true }):AddColorPicker("FOVColor", { Default = Color3.fromRGB(255, 255, 255) })
 FOVGroup:AddSlider("FOVRadius", { Text = "Radius", Default = 100, Min = 10, Max = 800, Rounding = 0 })
 
--- // 7. UNIVERSAL MOVEMENT
+-- // 9. UNIVERSAL MOVEMENT
 local MoveGroup = Tabs.Movement:AddLeftGroupbox("Movement")
 MoveGroup:AddToggle("FlightEnabled", { Text = "Flight", Default = false }):AddKeyPicker("FlightKey", { Default = "F", Mode = "Toggle", Text = "Toggle Flight" })
 MoveGroup:AddSlider("FlightSpeed", { Text = "Flight Speed", Default = 50, Min = 10, Max = 300, Rounding = 0 })
@@ -102,7 +171,7 @@ MoveGroup:AddSlider("WalkSpeed", { Text = "WalkSpeed", Default = 16, Min = 16, M
 MoveGroup:AddToggle("InfJump", { Text = "Infinite Jump", Default = false })
 MoveGroup:AddToggle("Noclip", { Text = "Noclip", Default = false })
 
--- // 8. GAME SPECIFIC LOGIC
+-- // 10. GAME SPECIFIC LOGIC
 
 -- [ ARSENAL ]
 if GameMode == "Arsenal" then
@@ -135,7 +204,7 @@ if GameMode == "Arsenal" then
     end)
 end
 
--- [ FIVE NIGHTS TD (Priority System) ]
+-- [ FIVE NIGHTS TD ]
 if GameMode == "FNTD" then
     local Farm = Tabs.Game:AddLeftGroupbox('Macro Setup')
     
@@ -163,12 +232,11 @@ if GameMode == "FNTD" then
         end
     end)
     
-    -- Priority Slots UI
     local SlotsGroup = Tabs.Game:AddRightGroupbox('Unit Loadout')
     for i = 1, 6 do
         SlotsGroup:AddLabel("Unit " .. i)
         SlotsGroup:AddInput('GUID'..i, { Default = '', Text = 'GUID', Placeholder = 'Waiting...' })
-        SlotsGroup:AddSlider('Prio'..i, { Text = 'Priority (1=High)', Default = i, Min = 1, Max = 6, Rounding = 0 })
+        SlotsGroup:AddSlider('Prio'..i, { Text = 'Priority', Default = i, Min = 1, Max = 6, Rounding = 0 })
         SlotsGroup:AddDivider()
     end
 
@@ -189,7 +257,6 @@ if GameMode == "FNTD" then
                     for i = 1, 6 do
                         if Library.Options["GUID"..i].Value == DetectedID then isDuplicate = true; break end
                     end
-                    
                     if not isDuplicate then
                         for i = 1, 6 do
                             local Opt = Library.Options["GUID"..i]
@@ -234,25 +301,17 @@ if GameMode == "FNTD" then
                         local Z = tonumber(Library.Options.MacroZ.Value) or -821
                         local TargetCF = CFrame.new(X, Y, Z)
                         
-                        -- 1. Collect Valid Units
                         local UnitsToPlace = {}
                         for i = 1, 6 do
                             local ID = Library.Options["GUID"..i].Value
                             local Prio = Library.Options["Prio"..i].Value
-                            if ID and ID ~= "" then
-                                table.insert(UnitsToPlace, {ID = ID, Priority = Prio})
-                            end
+                            if ID and ID ~= "" then table.insert(UnitsToPlace, {ID = ID, Priority = Prio}) end
                         end
-                        
-                        -- 2. Sort by Priority (Lower number = First)
                         table.sort(UnitsToPlace, function(a, b) return a.Priority < b.Priority end)
                         
-                        -- 3. Execute in Order
                         for _, Unit in ipairs(UnitsToPlace) do
-                            pcall(function() 
-                                Place:FireServer(unpack({{PlaceCFrame = TargetCF, UnitGUID = Unit.ID}})) 
-                            end)
-                            task.wait(0.1) -- Placement delay
+                            pcall(function() Place:FireServer(unpack({{PlaceCFrame = TargetCF, UnitGUID = Unit.ID}})) end)
+                            task.wait(0.1)
                         end
                     end
                     
@@ -266,9 +325,13 @@ if GameMode == "FNTD" then
     end)
 end
 
--- // 9. SETTINGS & INIT
+-- // 11. SETTINGS & INIT
 local MenuGroup = Tabs.Settings:AddLeftGroupbox("Menu")
-MenuGroup:AddButton("Unload", function() Library:Unload(); Sense.Unload() end)
+MenuGroup:AddButton("Unload", function() 
+    getgenv().SorWareLoaded = false
+    Library:Unload() 
+    Sense.Unload() 
+end)
 MenuGroup:AddLabel("Menu Key"):AddKeyPicker("MenuKey", { Default = "RightShift", NoUI = true, Text = "Menu Keybind" })
 
 Library.ToggleKeybind = Library.Options.MenuKey
@@ -282,7 +345,7 @@ SaveManager:BuildConfigSection(Tabs.Settings)
 ThemeManager:ApplyToTab(Tabs.Settings)
 SaveManager:LoadAutoloadConfig()
 
--- // 10. HELPER LOGIC
+-- // 12. HELPER LOGIC
 local function IsVisible(TargetPart)
     if not TargetPart then return false end
     local Origin = Camera.CFrame.Position
@@ -327,11 +390,10 @@ local function GetClosestPlayer()
     return Closest
 end
 
--- // 11. MAIN LOOP
+-- // 13. MAIN LOOP
 local FOVCircle = Drawing.new("Circle"); FOVCircle.Thickness = 1; FOVCircle.NumSides = 64; FOVCircle.Filled = false; FOVCircle.Visible = false
 
 Services.RunService.RenderStepped:Connect(function()
-    -- FOV
     if Library.Toggles.DrawFOV.Value and Library.Toggles.AimbotEnabled.Value then
         FOVCircle.Visible = true
         FOVCircle.Radius = Library.Options.FOVRadius.Value
@@ -341,7 +403,6 @@ Services.RunService.RenderStepped:Connect(function()
         FOVCircle.Visible = false
     end
 
-    -- Aimbot
     if Library.Toggles.AimbotEnabled.Value and Library.Options.AimbotKey:GetState() then
         local Target = GetClosestPlayer()
         if Target then
@@ -355,7 +416,6 @@ Services.RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- Arsenal Logic
     if GameMode == "Arsenal" and Library.Toggles.Ars_Hitbox.Value then
         local Size = Library.Options.Ars_HitboxSize.Value
         local Trans = Library.Options.Ars_HitboxTrans.Value
@@ -385,7 +445,7 @@ Services.RunService.RenderStepped:Connect(function()
     end
 end)
 
--- // 12. PHYSICS LOOP
+-- // 14. PHYSICS LOOP
 Services.RunService.Stepped:Connect(function()
     if not LocalPlayer.Character then return end
     local HRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -431,5 +491,4 @@ Services.UserInputService.JumpRequest:Connect(function()
     end
 end)
 
-Library:Notify("SorWare v23.0 Loaded (Priority System)", 5)
-
+Library:Notify("SorWare v25.0 Loaded (Plugins Enabled)", 5)
