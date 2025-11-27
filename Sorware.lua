@@ -1,11 +1,3 @@
---[[
-    SORWARE - ULTIMATE EDITION (v25.0)
-    Status: OPEN SOURCE (Plugin System)
-    UI: Obsidian (Dark/Ubuntu)
-    Logic: Universal + Arsenal + FNTD (Macro) + PF + Plugins
-    Author: Pine (Cell Block D)
-]]
-
 -- // 0. SINGLETON CHECK
 if getgenv().SorWareLoaded then
     game:GetService("StarterGui"):SetCore("SendNotification", {Title = "SorWare", Text = "Already loaded!", Duration = 5})
@@ -30,7 +22,7 @@ local Camera = Services.Workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
 -- // 2. CONFIG & GLOBALS
-local ScriptURL = "https://raw.githubusercontent.com/milkisbetter/SorWare/main/FNTD2.lua" 
+local ScriptURL = "https://raw.githubusercontent.com/milkisbetter/SorWare/refs/heads/main/Sorware.lua" 
 
 -- EXPOSE API FOR PLUGINS
 getgenv().SorWare = {
@@ -492,4 +484,5 @@ Services.UserInputService.JumpRequest:Connect(function()
 end)
 
 Library:Notify("SorWare v25.0 Loaded (Plugins Enabled)", 5)
+
 
