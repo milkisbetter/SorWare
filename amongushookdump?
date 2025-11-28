@@ -1,0 +1,1655 @@
+task.spawn(function()
+    local ScriptBundle = {
+        --[[ 
+            ===========================================================
+            UTILITY & STRING FUNCTIONS 
+            ===========================================================
+        ]]
+        e3 = string.gsub,
+        Q3 = string.sub,
+        i3 = string.char,
+        c3 = string.byte,
+        d3 = coroutine,
+        b3 = coroutine.yield,
+        h3 = setmetatable,
+        g3 = getmetatable,
+        K3 = table.move,
+        O3 = unpack,
+        G3 = table,
+        y3 = bit32,
+        zh = string,
+        Jh = string.unpack,
+        
+        --[[ 
+            ===========================================================
+            CORE GAME LOGIC
+            (Deobfuscated Feature Functions)
+            ===========================================================
+        ]]
+
+        -- [ Raycast / Projectile Hook ]
+        -- Handles bullet drop prediction and silent aim redirection
+        RaycastHook = function(env)
+            local State = env[10]
+            local TargetCache = env[7]
+            local CheckCaller = env[11]
+            local Settings = env[5]
+            local Workspace = env[12]
+            local DebugLog = env[4]
+            local BulletCache = env[9]
+            local ProjectileData = env[2]
+            local GetTime = env[13]
+            local MathVector = env[14]
+            local Vector3New = env[0]
+            local DrawLine = env[8]
+            local MathRot = env[15]
+            local HookFunc = env[16]
+            local OriginalRaycast = env[6]
+            local Cache = env[1]
+            local Equipment = env[3]
+
+            return function(self, ...)
+                local context = getfenv(2)
+                if CheckCaller(context, 'workspace') then
+                    HookFunc(2, getmetatable(context).__index)
+                end
+
+                local args = { ... }
+                local Origin = args[1]
+                local Direction = args[2]
+
+                if not Cache[1][Cache[3]] then
+                    Cache[1][Cache[3]] = Origin
+                    
+                    -- Projectile Simulation Logic
+                    if Settings.silent.player and Settings.silent._OVERIDE_HITPOS and Equipment.equippedItem then
+                        local Drop = Equipment.equippedItem.ProjectileDrop
+                        local Speed = Equipment.equippedItem.ProjectileSpeed
+                        local TargetInstance = Settings.silent.instance
+                        
+                        ProjectileData.enabled = true
+                        ProjectileData.instance = TargetInstance
+                        ProjectileData.deltaTime = (Cache[1][Cache[3]] - Settings.silent._OVERIDE_HITPOS).Magnitude / Speed
+                        ProjectileData.simulated = (MathVector * MathRot(0, -Drop ^ (ProjectileData.deltaTime * Drop) + 1, -ProjectileData.deltaTime * Speed)).Position
+                        
+                        Equipment.shotBullets[BulletCache] = TargetInstance.Position - TargetInstance.Parent.PrimaryPart.Position
+                        DebugLog("expected", ProjectileData.deltaTime)
+                    end
+                end
+
+                if ProjectileData.enabled then
+                    if TargetCache[1][TargetCache[3]] and GetTime(OriginalRaycast)[TargetCache[1][TargetCache[3]]] >= math.max(ProjectileData.deltaTime - 0.15, 0) then
+                        State[1][State[3]] = true
+                        DrawLine(OriginalRaycast, TargetCache[1][TargetCache[3]], ProjectileData.deltaTime)
+                        
+                        return {
+                            Distance = Direction.Magnitude,
+                            Instance = ProjectileData.instance,
+                            Position = ProjectileData.simulated,
+                            Material = Enum.Material.Plastic,
+                            Normal = Vector3New(0, 0, 0)
+                        }
+                    end
+                    return
+                end
+
+                local result = Workspace:Raycast(unpack(args))
+                if result then
+                    State[1][State[3]] = true
+                end
+                return result
+            end
+        end,
+
+        -- [ Hit Registration Handler ]
+        -- Handles bullet hits and headshot forcing
+        HitHandler = function(env)
+            local IsTeam = env[6]
+            local VerifyCode = env[2]
+            local Flags = env[4]
+            local ShotData = env[1]
+            local Network = env[3]
+            local LocalPlayer = env[5]
+            local Vector3Zero = env[0]
+
+            return function(remote, args)
+                -- Verify Hit Remote
+                if remote ~= VerifyCode(Network[1][Network[3]].SendCodes, 'IN_USE_ITEM') or args[1] ~= 'Hit' then
+                    return
+                end
+
+                local isSpecial = #args == 7
+                local indexA = 6
+                local indexB = 5
+                
+                if not isSpecial then
+                    indexA = 5
+                    indexB = 4
+                end
+
+                -- Force Headshots
+                if Flags.forceHeadshots.value and IsTeam(LocalPlayer, args[indexB]) then
+                    args[indexB] = "Head"
+                end
+
+                args[indexA] = Vector3Zero(0, 0, 0)
+                
+                local bulletData = ShotData.shotBullets[args[2]]
+                if isSpecial and bulletData then
+                    args[indexA] = bulletData
+                    ShotData.shotBullets[args[2]] = nil
+                end
+            end
+        end,
+
+        -- [ Silent Aim Logic Loop ]
+        -- Main loop for finding targets and calculating logic
+        SilentAimLoop = function(env)
+            local Player = env[12]
+            local Settings = env[8]
+            local Calculate = env[4]
+            local IsSleeping = env[0]
+            local GetType = env[6]
+            local Cache = env[3]
+            local SortTable = env[9]
+            local State = env[2]
+            local TeamCheck = env[14]
+            local VerifyType = env[11]
+            local FOVData = env[16]
+            local InstanceCheck = env[13]
+            local TypeCheck = env[1]
+            local Iteration = env[10]
+            local AddTable = env[5]
+            local CheckVisible = env[15]
+            local WorldToScreen = env[7]
+
+            return function()
+                if not Settings.silentAim_toggle.value then
+                    State.silent = {}
+                    return
+                end
+
+                local BestTarget = { distance = FOVData.silent.fov.Radius }
+                local HitPart = Settings.silentAim_hitpart.value
+                local VisCheck = Settings.silentAim_visibleCheck.value
+                local MagicBullet = Settings.silentAim_magicBullet.value
+                local CheckRequired = VisCheck or MagicBullet
+                local LocalPos = Player.CFrame.Position
+                local Targets = {}
+
+                -- Player Loop
+                for _, player in Iteration, Cache.playerCache do
+                    if IsSleeping(player, "sleeping") then continue end
+                    
+                    local character = IsSleeping(player, "model")
+                    if GetType(character) ~= "Instance" or InstanceCheck(character) then continue end
+                    
+                    local targetPart = character:FindFirstChild(HitPart == 'head' and 'Head' or 'Torso')
+                    if not targetPart then continue end
+                    
+                    local partPos = targetPart.Position
+                    local screenPos, onScreen = WorldToScreen(partPos)
+                    if not onScreen then continue end
+                    
+                    local dist = (screenPos - Cache.mousePos).Magnitude
+                    
+                    if dist >= BestTarget.distance then
+                        continue
+                    elseif not CheckRequired then
+                        BestTarget.player = player
+                        BestTarget.distance = dist
+                        BestTarget.vector3 = partPos
+                        BestTarget.vector2 = screenPos
+                        BestTarget.instance = targetPart
+                        continue
+                    end
+                    
+                    AddTable(Targets, {
+                        player = player,
+                        distance = dist,
+                        vector3 = partPos,
+                        vector2 = screenPos,
+                        model = character,
+                        instance = targetPart
+                    })
+                end
+
+                if not CheckRequired then
+                    State.silent = BestTarget
+                    return
+                end
+
+                if #Targets > 0 then
+                    SortTable(Targets, function(a, b) return a.distance < b.distance end)
+                    
+                    for i = 1, #Targets do
+                        local target = Targets[i]
+                        if MagicBullet then
+                            local hitPos = Calculate(LocalPos, target.model, target.vector3)
+                            if hitPos then
+                                target._OVERIDE_HITPOS = hitPos
+                                State.silent = target
+                                return
+                            end
+                        elseif CheckVisible(LocalPos, target.vector3, target.model) then
+                            State.silent = target
+                            return
+                        end
+                    end
+                end
+
+                -- Entity/NPC Loop (Similar Logic)
+                Targets = {}
+                for _, entity in Iteration, Cache.entityCache do
+                    if TypeCheck(entity) ~= 'table' or not VerifyType(TeamCheck[1], IsSleeping(entity, "type") or '') then continue end
+                    
+                    local model = IsSleeping(entity, "model")
+                    if GetType(model) ~= "Instance" then continue end
+                    
+                    local part = model:FindFirstChild(HitPart == "head" and 'Head' or 'Torso')
+                    if not part then continue end
+                    
+                    local pos = part.Position
+                    local sPos, vis = WorldToScreen(pos)
+                    if not vis then continue end
+                    
+                    local dist = (sPos - Cache.mousePos).Magnitude
+                    
+                    if dist >= BestTarget.distance then
+                        continue
+                    elseif not CheckRequired then
+                        BestTarget.player = entity
+                        BestTarget.distance = dist
+                        BestTarget.vector3 = pos
+                        BestTarget.vector2 = sPos
+                        BestTarget.instance = part
+                        continue
+                    end
+                    
+                    AddTable(Targets, {
+                        player = entity,
+                        distance = dist,
+                        vector3 = pos,
+                        vector2 = sPos,
+                        model = model,
+                        instance = part
+                    })
+                end
+
+                if not CheckRequired then
+                    State.silent = BestTarget
+                    return
+                end
+
+                if #Targets > 0 then
+                    SortTable(Targets, function(a, b) return a.distance < b.distance end)
+                    for i = 1, #Targets do
+                        local target = Targets[i]
+                        if CheckVisible(LocalPos, target.vector3, target.model) then
+                            if MagicBullet then
+                                target._OVERIDE_HITPOS = target.vector3
+                            end
+                            State.silent = target
+                            return
+                        end
+                    end
+                end
+
+                State.silent = BestTarget
+            end
+        end,
+
+        -- [ UI Setup ]
+        -- Defines the menu, toggles, and sliders
+        BuildUI = function(env)
+            local Color = env[1]
+            local Library = env[0]
+            
+            return function()
+                do 
+                    -- Combat Tab
+                    do
+                        Library.combat:addToggle({flag = "silentAim_toggle", text = 'silent aim', default = false}, 1)
+                        Library.combat:addSlider({flag = 'silentAim_hitchance', text = 'hitchance', max = 100, min = 1, suffix = '%', increment = 1, default = 100}, 1)
+                        Library.combat:addDropdown({flag = 'silentAim_hitpart', text = 'hitpart', options = {'head', "torso"}, default = 'head'}, 1)
+                        Library.combat:addToggle({flag = "silentAim_targetNPCs", text = "target npcs", default = true}, 1)
+                        Library.combat:addToggle({flag = "silentAim_teamCheck", text = 'team check', default = true}, 1)
+                        Library.combat:addToggle({flag = "silentAim_magicBullet", text = 'magic bullet', default = true}, 1)
+                        Library.combat:addToggle({flag = "silentAim_prediction", text = 'prediction', default = false}, 1)
+                        Library.combat:addToggle({flag = 'silentAim_visibleCheck', text = 'visible check', default = false}, 1)
+                        Library.combat:addToggle({flag = "silentAim_snapline", text = 'snapline', default = false}, 1):addColourpicker({flag = 'silentAim_snaplineColour', default = Color(255, 255, 255)})
+                        Library.combat:addToggle({flag = 'silentAim_dynamicFOV', text = 'dynamic fov', default = true}, 1)
+                        Library.combat:addToggle({flag = "silentAim_drawFOV", text = "draw fov", default = false}, 1):addColourpicker({flag = 'silentAim_fovColour', default = Color(255, 255, 255)})
+                        Library.combat:addSlider({flag = 'silentAim_FOVSize', text = 'fov size', max = 1500, min = 10, suffix = "px", increment = 1, default = 300}, 1)
+                    end
+                    -- Weapon Mods
+                    do
+                        Library.combat:addSlider({flag = "recoilPercentage", text = "recoil", max = 100, min = 0, suffix = '%', increment = 1, default = 100}, 2)
+                        Library.combat:addSlider({flag = "spreadPercentage", text = "spread", max = 100, min = 0, suffix = '%', increment = 1, default = 100}, 2)
+                        Library.combat:addToggle({flag = "forceHeadshots", text = 'force headshots', default = false}, 2)
+                    end
+                end
+                
+                do 
+                    -- Visuals Tab
+                    do
+                        Library.visuals:addToggle({flag = "playerESP", text = "player esp", default = false}, 1)
+                        Library.visuals:addToggle({flag = 'playerESP_ignoreSleepers', text = "ignore sleepers", default = true}, 1)
+                        Library.visuals:addToggle({flag = "playerESP_box", text = "box", default = false}, 1)
+                        Library.visuals:addToggle({flag = "playerESP_name", text = "name", default = false}, 1)
+                        Library.visuals:addToggle({flag = "playerESP_distance", text = "distance", default = false}, 1)
+                        Library.visuals:addToggle({flag = "playerESP_weapon", text = 'weapon', default = false}, 1)
+                        
+                        Library.visuals.offsets[1] += 15
+                        
+                        Library.visuals:addToggle({flag = 'soldierESP', text = 'soldier esp', default = false}, 1)
+                        Library.visuals:addToggle({flag = 'soldierESP_box', text = 'box', default = false}, 1)
+                        Library.visuals:addToggle({flag = "soldierESP_name", text = "name", default = false}, 1)
+                        Library.visuals:addToggle({flag = 'soldierESP_distance', text = "distance", default = false}, 1)
+                        Library.visuals:addToggle({flag = 'soldierESP_weapon', text = 'weapon', default = false}, 1)
+                    end
+                    -- Entity ESP
+                    do
+                        Library.visuals:addToggle({flag = 'entityESP_toggle', text = "entity esp", default = false}, 2)
+                        Library.visuals:addToggle({flag = 'entityESP_box', text = 'box', default = false}, 2)
+                        Library.visuals:addToggle({flag = "entityESP_name", text = 'name', default = false}, 2)
+                        Library.visuals:addToggle({flag = 'entityESP_distance', text = 'distance', default = false}, 2)
+                        Library.visuals:addToggle({flag = 'nitrateESP_toggle', text = "nitrate esp", default = false}, 2)
+                        Library.visuals:addToggle({flag = 'stoneESP_toggle', text = "stone esp", default = false}, 2)
+                        Library.visuals:addToggle({flag = 'ironESP_toggle', text = "iron esp", default = false}, 2)
+                        Library.visuals:addToggle({flag = 'totemESP_toggle', text = "totem esp", default = false}, 2)
+                        Library.visuals:addToggle({flag = "backpackESP_toggle", text = "backpack esp", default = false}, 2)
+                    end
+                end
+                
+                -- Local Player
+                do do end
+                    do
+                        Library._local:addToggle({flag = 'alwaysShoot_toggle', text = "always shoot", default = false}, 2)
+                        Library._local:addToggle({flag = 'noSlowdown_toggle', text = "no slowdown", default = false}, 2)
+                    end
+                end
+                
+                -- World Settings
+                do do
+                        Library.world:addToggle({flag = 'ambient_toggle', text = 'ambient', default = false}, 1):addColourpicker({flag = 'ambient_colour', default = Color(255, 255, 255)})
+                        Library.world:addToggle({flag = "removefog_toggle", text = "remove fog", default = false}, 1)
+                        Library.world:addToggle({flag = 'removegrass_toggle', text = "remove grass", default = false}, 1)
+                        Library.world:addToggle({flag = "removeshadows_toggle", text = 'remove shadows', default = false}, 1)
+                    end
+                end
+            end
+        end,
+
+        --[[ 
+            ===========================================================
+            VM / OBFUSCATION ENGINE (Internal Use)
+            These functions handle the execution of the encrypted 
+            chunks and bitwise math. They are necessary for the script
+            to load but do not contain editable game logic.
+            ===========================================================
+        ]]
+        g = function(L)
+            local e = L[4];
+            local f = L[3];
+            local G = L[0];
+            local b = L[2];
+            local c = L[1];
+            return function(L)
+                if (not G(L)) then return; elseif (string.find(b(L, 's'), "Client.Client.")) then return L; end;
+                local G = {};
+                local function Z(j)
+                    G[j] = true;
+                    for V, V in c, j do
+                        local c = e(V);
+                        if (c == "function" and string.find(b(L, "s"), "Client.Client.")) then
+                            return V;
+                        elseif (c ~= 'table' or G[j]) then
+                            continue;
+                        end;
+                        local e = Z(V);
+                        if (e ~= nil) then return e; end;
+                    end;
+                end;
+                return Z(f(L));
+            end;
+        end,
+        pL = function(L, L)
+            local e = L[0B1][0X1f]();
+            if L[0X1][0b11111] ~= L[0X1__][13] then L[1][0x14] = (L[0X1][0B10100] + e); end;
+            return {L[0X1][0B111](L[0B1][0X15_], L[0x1_][0x014] - e, L[1][0B10100] - 0B1)};
+        end,
+        f = function(L)
+            local e = L[0];
+            local f = L[1];
+            return function(L) return f(L) == "function" and e(L, "s") ~= '[C]'; end;
+        end,
+        n3 = function(L)
+            local e = L[0];
+            return function(L) e.iron = L; end;
+        end,
+        E = function(L)
+            local e = L[1];
+            local f = L[0];
+            return function(L)
+                local G = e(function() f(L + 3); end);
+                return G;
+            end;
+        end,
+        P = function(L)
+            local e = L[0];
+            return function(L) e.box = L; end;
+        end,
+        TL = function(L, L, e)
+            e = L[0X5016__];
+            return e;
+        end,
+        S3 = function(L)
+            local e = L[0];
+            return function(L) e.nitrate = L; end;
+        end,
+        S0 = function(L, e, f, G, b)
+            if e < 0x6_5 then
+                e = L:L0(b, e, G);
+            else
+                if e > 0X01e then
+                    L:N0(f, b);
+                    return 0Xf087__, e;
+                end;
+            end;
+            return nil, e;
+        end,
+        Q0 = function(L, L, e, f)
+            L = (0b1__001000);
+            f = (#e[1][0X13]);
+            return L, f;
+        end,
+        YL = function(L, e, f, G)
+            local b, c;
+            f[0B10100] = nil;
+            (f)[0X15] = (nil);
+            (f)[0X16__] = nil;
+            (f)[0X17] = nil;
+            e = (0B111000__1);
+            repeat
+                e, b, c = L:uL(G, e, c, f);
+                if b == 0X87aB then
+                    break;
+                else
+                    if b ~= 0X3E7c then else continue; end;
+                end;
+            until false;
+            f[0B1100_0] = (function(G)
+                local b = ({f});
+                for c = 0b1001, 0X8C, 0x5c do
+                    if c > 0b1001 then
+                        (b[0B1])[20] = 0x1;
+                        break;
+                    else
+                        if not (c < 0X65) then else L:xL(b, G); continue; end;
+                    end;
+                end;
+            end);
+            f[25] = (nil);
+            f[0X1A] = (nil);
+            (f)[0X1B] = nil;
+            return e;
+        end,
+        Eh = bit32.lshift,
+        Y3 = function(L)
+            local e = L[10];
+            local f = L[7];
+            local G = L[11];
+            local b = L[5];
+            local c = L[12];
+            local Z = L[4];
+            local j = L[9];
+            local V = L[2];
+            local k = L[13];
+            local M = L[14];
+            local N = L[0];
+            local J = L[8];
+            local o = L[15];
+            local F = L[16];
+            local Q = L[6];
+            local x = L[1];
+            local R = L[3];
+            return function(L, ...)
+                local L = getfenv(2);
+                if (G(L, 'workspace')) then F(2, getmetatable(L).__index); end;
+                local L = {...};
+                local G = L[1];
+                local F = L[2];
+                if (not x[1][x[3]]) then
+                    x[1][x[3]] = G;
+                    if (b.silent.player and b.silent._OVERIDE_HITPOS and R.equippedItem) then
+                        local G = R.equippedItem.ProjectileDrop;
+                        local l = R.equippedItem.ProjectileSpeed;
+                        local P = b.silent.instance;
+                        V.enabled = true;
+                        V.instance = P;
+                        V.deltaTime = (x[1][x[3]] - b.silent._OVERIDE_HITPOS).Magnitude / l;
+                        V.simulated = (M * o(0, -G ^ (V.deltaTime * G) + 1, -V.deltaTime * l)).Position;
+                        R.shotBullets[j] = P.Position - P.Parent.PrimaryPart.Position;
+                        Z("expected", V.deltaTime);
+                    end;
+                end;
+                if (V.enabled) then
+                    if (f[1][f[3]] and k(Q)[f[1][f[3]]] >= math.max(V.deltaTime - 0.15, 0)) then
+                        e[1][e[3]] = true;
+                        J(Q, f[1][f[3]], V.deltaTime);
+                        return {
+                            Distance = F.Magnitude,
+                            Instance = V.instance,
+                            Position = V.simulated,
+                            Material = Enum.Material.Plastic,
+                            Normal = N(0, 0, 0)
+                        };
+                    end;
+                    return;
+                end;
+                local f = c:Raycast(unpack(L));
+                if (f) then e[1][e[3]] = true; end;
+                return f;
+            end;
+        end,
+        V0 = function(L, e, f, G, b, c, Z, j, V, k, M)
+            if f <= 69 then
+                if f >= 0X45 then
+                    f = 0B1100000;
+                    if G ~= 0XAB then else
+                        while b do M, k = L:Y0(b, G, j, k, M); end;
+                    end;
+                else
+                    (Z)[e + 0X2__] = V;
+                    return k, f, 10370, M, Z, e;
+                end;
+            else
+                if f > 0X5B then
+                    e, f = L:a0(Z, k, e, f);
+                else
+                    f = 0X7e;
+                    Z = (j[0x1][0B10][c]);
+                    return k, f, 52729, M, Z, e;
+                end;
+            end;
+            return k, f, nil, M, Z, e;
+        end,
+        dL = function(L, L, e, f)
+            if e < 0X67 then
+                f = L[0B1][0X1f]();
+                e = 103;
+            else
+                if not (e > 0X28) then else
+                    if not (f >= L[0x1][22]) then else return e, {f - L[0X1][6]}, f; end;
+                    return e, {f}, f;
+                end;
+            end;
+            return e, nil, f;
+        end,
+        uh = (function(L)
+            local e, f, G, b = {};
+            G, b = L:NL(G, e, b);
+            L:SL(e);
+            b = L:BL(b, G, e);
+            b = L:mL(b, G, e);
+            b = L:oL(b, G, e);
+            b = L:YL(b, e, G);
+            b = L:qL(b, G, e);
+            b = L:AL(e, G, b);
+            b = L:W0(b, G, e);
+            local c, Z;
+            c, Z, b = L:Wh(e, G, Z, b, c);
+            local j;
+            Z, c, j, b = L:Hh(b, c, j, Z, e, G);
+            e[0X21][0XE] = L.Mh;
+            b = (68);
+            repeat
+                if b == 0X44 then
+                    e[0B100001][0b11__01] = L.p3;
+                    if not (not G[0X507a]) then b = L:wh(b, G); else b = L:lh(b, G); end;
+                    continue;
+                elseif b == 0X53 then
+                    b = L:Rh(G, e, b);
+                    continue;
+                elseif b == 0B010110 then
+                    (e[0X21])[12] = L.DL;
+                    (e[0X21_])[9] = L.WL;
+                    if not G[29013] then
+                        (G)[0X12B0] = -0x22FFF9 + ((L.Eh(G[0X1E92], (G[15067]))) + G[0x9Aa] + G[0x4__660] - G[0X2235]);
+                        b = -3422552054 + ((L.Eh(G[0x1e92] + G[32334] <= G[18016] and G[0X1e92] or G[32334], (G[0x40d3]))) + G[32334]);
+                        G[0X0__07155] = (b);
+                    else
+                        b = (G[0X7155]);
+                    end;
+                else
+                    if b == 0X7D then e[0B100001][0X007] = L.tL; break; end;
+                end;
+            until false;
+            local V;
+            b = (0B1111000);
+            repeat
+                b, j, f, V = L:Sh(j, b, c, e, V, Z, G);
+                if f == 0X18__bC then
+                    continue;
+                else
+                    if f ~= 0Xb891 then else break; end;
+                end;
+            until false;
+            return e[0b100101](j, V);
+        end),
+        S = function(L)
+            local e = L[0];
+            local f = L[1];
+            local G = L[2];
+            return function()
+                while (e[1][e[3]] > 0) do
+                    local L = (e[1][e[3]] % 146) // 1;
+                    local b = L % 20 + 1;
+                    local c = L % 4 + 1;
+                    local Z = L % c + 1;
+                    for L = 1, b do f(G, c + L - 1, Z); end;
+                    e[1][e[3]] //= 1.01;
+                end;
+            end;
+        end,
+        gL = function(L, e, f, G, b)
+            e = L.i3;
+            G[0x14] = (0X1);
+            if not (not f[28600]) then
+                b = f[0X006f__b8];
+            else
+                (f)[28599] = 0B100010 + (L.Fh((L.Th(L.V3[8] + f[19984] + L.V3[0x2], (f[0X487D])))));
+                b = (4173353838 + ((L.oh(L.V3[0X1] - L.V3[7] ~= f[19984] and f[29122] or f[0X67_cb], f[31300])) - L.V3[0x9]));
+                (f)[0X6FB8] = b;
+            end;
+            return b, e;
+        end,
+        SL = function(L, L)
+            L[6] = nil;
+            L[0B111] = nil;
+            L[0b1000] = nil;
+        end,
+        v0 = function(L, e, f, G, b, c, Z, j, V)
+            local k;
+            for M = 0x3D, 0X0a1, 0B1010001 do
+                if M == 0B11_110_1 then
+                    L:k0(Z, f);
+                else
+                    if M == 0X8E then L:R0(f, e); break; end;
+                end;
+            end;
+            f[0B0100] = (V);
+            j = 0X001E;
+            repeat
+                k, j = L:S0(j, c, b, f);
+                if k == 61575 then break; end;
+            until false;
+            (f)[0x2] = (G);
+            j = (3);
+            return j;
+        end,
+        Y = function(L)
+            local e = L[6];
+            local f = L[2];
+            local G = L[4];
+            local b = L[1];
+            local c = L[3];
+            local Z = L[5];
+            local j = L[0];
+            return function(L, V)
+                if (L ~= f(c[1][c[3]].SendCodes, 'IN_USE_ITEM') or V[1] ~= 'Hit') then return; end;
+                local L = #V == 7;
+                local f = 6;
+                local c = 5;
+                if (not L) then
+                    f = 5;
+                    c = 4;
+                end;
+                if (G.forceHeadshots.value and e(Z, V[c])) then V[c] = "Head"; end;
+                V[f] = j(0, 0, 0);
+                local e = b.shotBullets[V[2]];
+                if (L and e) then
+                    V[f] = e;
+                    b.shotBullets[V[2]] = nil;
+                end;
+            end;
+        end,
+        NL = function(L, e, f, G)
+            local b;
+            e = {};
+            (f)[0X1] = (nil);
+            (f)[0b10] = nil;
+            f[0X3] = nil;
+            G = 33;
+            repeat
+                b, G = L:LL(f, G, e);
+                if b == 4644 then
+                    continue;
+                else
+                    if b == 0X659__9 then break; end;
+                end;
+            until false;
+            f[4] = L.b3;
+            (f)[0b101] = nil;
+            return e, G;
+        end,
+        vL = function(L, e, f, G)
+            e[0X5] = L.c3;
+            e[0B110] = 9007199254740992;
+            if not G[19984] then
+                (G)[18991] = 2730519596 + ((L.Bh(L.V3[0b10] + L.V3[0X00__4], (G[0X2235]))) - L.V3[2] + L.V3[0x6__]);
+                G[0X71C2] = -3279722087 + (L.vh((L.Mh(L.V3[0B110] + L.V3[0B1] - L.V3[0X3], G[0X2235]))));
+                f = (-2363601014 + ((L.mh((L.Eh((L.nh(L.V3[5])), (G[0X67Cb_]))), (G[0x67Cb]))) + L.V3[0B1000]));
+                G[0x4E10] = f;
+            else
+                f = G[19984];
+            end;
+            return f;
+        end,
+        ZL = function(L, e, f, G)
+            local b;
+            if f == 0X54 then
+                f = L:aL(G, f);
+            else
+                if f ~= 0X23 then else
+                    b = L:VL(e);
+                    return {L.HL(b)}, f;
+                end;
+            end;
+            return nil, f;
+        end,
+        w3 = function(L)
+            local e = L[1];
+            local f = L[0];
+            local G = L[2];
+            local b = L[3];
+            return function(L)
+                if (L) then
+                    if (e.connection) then e.connection:Disconnect(); end;
+                    e.connection = G.PreRender:Connect(b);
+                    return;
+                elseif (not e.connection) then
+                    return;
+                end;
+                e.connection:Disconnect();
+                e.connection = nil;
+                for L, L in f.npcCache do L:hideDrawings(); end;
+            end;
+        end,
+        Z = function(L)
+            local e = L[1];
+            local f = L[5];
+            local G = L[4];
+            local b = L[2];
+            local c = L[0];
+            local Z = L[3];
+            return function(L)
+                c.targetTime += L;
+                if (c.targetTime < Z.targettingTime) then return; end;
+                c.targetTime = 0;
+                f();
+                local L = false;
+                if (e.silent.player) then
+                    if (b.silentAim_snapline.value) then
+                        L = true;
+                        G.silent.snapline.To = e.silent.vector2;
+                        G.silent.snapline.From = c.mousePos;
+                    end;
+                end;
+                G.silent.snapline.Visible = L;
+            end;
+        end,
+        IL = function(L, e, f)
+            e = 0X31__ + (L.mh((L.Fh(L.V3[0B100_0] + L.V3[7] > f[0x71C2_] and L.V3[2] or L.V3[6])), (f[26571])));
+            (f)[0X5016] = e;
+            return e;
+        end,
+        gh = getmetatable,
+        J3 = function(L)
+            local e = L[0];
+            local f = L[1];
+            return function(L) if (f.ambient_toggle.value) then e.Ambient = L; end; end;
+        end,
+        u0 = function(L, L, e, f)
+            f = nil;
+            L = (nil);
+            e = 91;
+            return f, L, e;
+        end,
+        L0 = function(L, L, e, f)
+            (L)[0Xa_] = f;
+            e = (0X65);
+            return e;
+        end,
+        y = function(L)
+            local e = L[0];
+            return function(L) e.silent.fov.Visible = L; end;
+        end,
+        sL = function(L, e, f)
+            f = (-0x2A + (L.vh((L.Bh(L.V3[0x5] - L.V3[0B10], (e[0X7A_44]))) + e[11521], e[31300])));
+            (e)[8812] = f;
+            return f;
+        end,
+        G = function(L)
+            local e = L[1];
+            local f = L[2];
+            local G = L[0];
+            local b = L[3];
+            return function(L)
+                e.mousePos = f:GetMouseLocation();
+                G.silent.fov.Position = e.mousePos;
+                b(L);
+            end;
+        end,
+        z = function(L)
+            local e = L[0];
+            local f = L[1];
+            return function(L, G, b)
+                local c = RaycastParams.new();
+                c.FilterDescendantsInstances = {b, f};
+                c.CollisionGroup = 'WeaponRaycast';
+                c.IgnoreWater = true;
+                local f = e:Raycast(L, G - L, c);
+                return not f, f;
+            end;
+        end,
+        x = function(L)
+            local e = L[1];
+            local f = L[2];
+            local G = L[0];
+            local b = L[3];
+            return function(L, c)
+                if (L == G(e[1][e[3]].SendCodes, 'INV_UNEQUIP_ITEM')) then
+                    b.equippedItem = nil;
+                    return;
+                elseif (L ~= G(e[1][e[3]].SendCodes, 'INV_EQUIP_ITEM')) then
+                    return;
+                end;
+                f();
+            end;
+        end,
+        eL = function(L, L, e, f, G)
+            if f > 0x3B then
+                f = 0X25;
+                G[0X1][0X14] = (e);
+            else
+                if f > 0X2__5 and f < 0X5E then
+                    L, e = G[0x1][14]("<d", G[1][0X15], G[0X1][0B10100]);
+                    f = (94);
+                else
+                    if f < 0X3B then return {L}, e, f, L; end;
+                end;
+            end;
+            return nil, e, f, L;
+        end,
+        AL = function(L, e, f, G)
+            e[0X1E_] = (nil);
+            e[31] = (nil);
+            G = 0Xe;
+            while true do
+                if G < 0B10101 then
+                    G = L:iL(f, G, e);
+                else
+                    if G > 0Xe then L:CL(e); break; end;
+                end;
+            end;
+            e[0B100000] = function()
+                local f, b = ({e});
+                b = L:PL(f);
+                if b ~= nil then return L.HL(b); end;
+            end;
+            e[33] = {};
+            return G;
+        end,
+        VL = function(L, L) return {L}; end,
+        t3 = function(L)
+            local e = L[0];
+            return function(L) e.name = L; end;
+        end,
+        j0 = function(L, L, e) e[L + 3] = (0x4); end,
+        DL = bit32.countlz,
+        H0 = function(L, L, e)
+            e = (L / 0B100);
+            return e;
+        end,
+        Nh = function(L, e, f)
+            f = 0x6a + (L.Fh((L.Ih(e[2474])) - e[1593] - e[0X100d]));
+            e[0x3__759] = (f);
+            return f;
+        end,
+        cL = function(L, L, e)
+            e = L[0X1E9_2];
+            return e;
+        end,
+        F3 = function(L)
+            local e = L[1];
+            local f = L[0];
+            return function(L)
+                local G = L and -1.0 or 100;
+                local b = L and -1.0 or 290;
+                f(e, 'FRMMinGrassDistance', G);
+                f(e, "FRMMaxGrassDistance", b);
+            end;
+        end,
+        th = function(L, L, e, f, G)
+            if e < 0X4c then
+                L[0B11000], L[24] = L[0x26], (L[0X21]);
+                return 26047, f, G;
+            else
+                if not (e > 0X25) then else
+                    while L[0B1__00010] do
+                        L[29], L[0XD] = 51, L[6];
+                        G, f = L[0B1101__1_] or 0X8__, L[0X23_];
+                    end;
+                end;
+            end;
+            return nil, f, G;
+        end,
+        H = function(L)
+            local e = L[2];
+            local f = L[1];
+            local G = L[0];
+            return function()
+                for L = 0, #f do
+                    if (f[L] == G) then
+                        e[1][e[3]] = L;
+                        break;
+                    end;
+                end;
+            end;
+        end,
+        sh = setmetatable,
+        D = function()
+            return function(L)
+                local e = game:GetService("Players");
+                if not e.LocalPlayer then e:GetPropertyChangedSignal("LocalPlayer"):Wait(); end;
+                return e.LocalPlayer:Kick(`MSPROTECT - {L}\10`);
+            end;
+        end,
+        w0 = function(L, e, f, G, b, c, Z, j, V, k, M)
+            local N;
+            V = {L._3, L._3, nil, nil, L._3, L._3, L._3, L._3, nil, L._3, L._3};
+            local J, o = (b[0B1][0B1__1111]());
+            Z = (nil);
+            f = nil;
+            j = nil;
+            e = nil;
+            c = (nil);
+            k = (nil);
+            G = 0X7;
+            while true do
+                if not (G > 43) then
+                    if not (G >= 0X2b) then
+                        o = b[1][0B1](J);
+                        (V)[0X9] = (o);
+                        G = 0X3a_;
+                        continue;
+                    else
+                        k = b[0X1][0X1_](Z);
+                        break;
+                    end;
+                else
+                    e, j, Z, G, N, c, f = L:l0(J, f, o, Z, e, b, j, c, G);
+                    if N == 0X4b3c then continue; end;
+                end;
+            end;
+            M = b[0x1][1](Z);
+            return M, j, G, Z, f, e, V, c, k;
+        end,
+        oL = function(L, e, f, G)
+            e = (0x67);
+            while true do
+                if e == 0B1100111 then
+                    G[0b10000_] = {};
+                    if not (not f[16595]) then
+                        e = L:EL(e, f);
+                    else
+                        e = -2978671551 + (L.Th(((L.V3[0X9_] ~= f[0x639] and f[0x7A44] or L.V3[0X8]) == f[0X639] and f[18991] or L.V3[0B101]) - L.V3[9], (f[0X7a44])));
+                        (f)[0x40d3] = e;
+                    end;
+                elseif e == 0X1A then
+                    e = L:FL(e, f, G);
+                    continue;
+                else
+                    if e == 49 then (G)[0X12] = nil; break; end;
+                end;
+            end;
+            (G)[0X13__] = nil;
+            return e;
+        end,
+        a0 = function(L, L, e, f, G)
+            if G == 96 then
+                (L)[f + 1] = e;
+                G = 0x003F;
+            else
+                G = (0X45);
+                f = #L;
+            end;
+            return f, G;
+        end,
+        m3 = function(L)
+            local e = L[3];
+            local f = L[0];
+            local G = L[2];
+            local b = L[1];
+            return function(L)
+                if (L) then
+                    if (e.connection) then e.connection:Disconnect(); end;
+                    e.connection = f.PreRender:Connect(b);
+                    return;
+                elseif (not e.connection) then
+                    return;
+                end;
+                e.connection:Disconnect();
+                e.connection = nil;
+                for L, L in G.entityCache do L:hideDrawings(); end;
+            end;
+        end,
+        _3 = nil,
+        C = function(L)
+            local e = L[2];
+            local f = L[0];
+            local G = L[1];
+            return function()
+                for L, L in G.playerCache do
+                    if (not f.ignoreSleepers or not e(L.player, "sleeping")) then L:loop(f); continue; end;
+                    L:hideDrawings();
+                end;
+            end;
+        end,
+        C0 = function(L, L)
+            L = function(...) return (...)(); end;
+            return L;
+        end,
+        x3 = function(L)
+            local e = L[5];
+            local f = L[3];
+            local G = L[0];
+            local b = L[1];
+            local c = L[4];
+            local Z = L[2];
+            return function()
+                for L = 1, #G do
+                    local j = G[L];
+                    c(j, function(L, G) return L.distance < G.distance; end);
+                    for L = 1, #j do
+                        local G = j[L];
+                        local L = G.position;
+                        local G, c = f(Z, L, b);
+                        if (not G) then
+                            local G = c.Position - (L - Z).Unit;
+                            if (f(e, G, b) and f(Z, G, b)) then return G; end;
+                            break;
+                        elseif (f(e, L, b)) then
+                            return L;
+                        end;
+                    end;
+                end;
+            end;
+        end,
+        Z3 = function(...) (...)[...] = nil; end,
+        a = function(L)
+            local e = L[4];
+            local f = L[5];
+            local G = L[1];
+            local b = L[0];
+            local c = L[2];
+            local Z = L[3];
+            return function(L, j, V)
+                local k = e.equippedItem;
+                if (c(k) ~= "table") then G('no equipped'); return j; end;
+                local e = k.ProjectileSpeed;
+                local c = k.ProjectileDrop;
+                if (not e or not c) then G("no speed or drop"); return j; end;
+                local G = V and b(V, 'velocityVector') or f(0, 0, 0);
+                local f = (L - j).Magnitude;
+                local b = f / e;
+                local e = Z(L, j).UpVector * (c ^ (b * c) - 1);
+                local L = G and G * (b * 7.4) or Vector3.zero;
+                return j + L + e, b;
+            end;
+        end,
+        X3 = function(L)
+            local e = L[0];
+            return function(L) e.box = L; end;
+        end,
+        f3 = function(L)
+            local e = L[1];
+            local f = L[3];
+            local G = L[0];
+            local b = L[2];
+            return function()
+                local L = {};
+                local c = listfiles(e);
+                for Z = 1, #c do
+                    local j = c[Z];
+                    G(L, f(j, #e + 2, #j));
+                end;
+                local e = b.configName.self;
+                e.options = L;
+                e.setValue(L[1] or "None");
+            end;
+        end,
+        T0 = function(L, L, e, f, G)
+            f = (0X54);
+            e = ((L - G) / 0X8);
+            return e, f;
+        end,
+        u3 = function(L)
+            local e = L[0];
+            local f = L[1];
+            local G = L[2];
+            return function(L, L, b)
+                G(e.entityCache, L, b);
+                f(b);
+            end;
+        end,
+        PL = function(L, e)
+            local f, G, b = (0x28__);
+            repeat
+                f, G, b = L:dL(e, f, b);
+                if G == nil then else return {L.HL(G)}; end;
+            until false;
+            return nil;
+        end,
+        k0 = function(L, L, e) e[3] = (L); end,
+        Lh = function(L, e, f)
+            e[0X0_3F62] = -0X4b323e08 + ((L.vh(L.V3[0X7] + e[0X4F94] - e[0X4F94])) - L.V3[0x8__]);
+            f = 119 + (((L.Eh(e[29013] - e[0X37C5], (e[15067]))) == e[28103] and e[15067] or e[0X2d01]) - e[0X6dc7]);
+            e[0X64f] = f;
+            return f;
+        end,
+        b = function(L)
+            local e = L[1];
+            local f = L[2];
+            local G = L[4];
+            local b = L[5];
+            local c = L[0];
+            local Z = L[3];
+            return function(...)
+                local L, j, V = ...;
+                local k = c.Lighting;
+                if (b() or L ~= f or k.values[j] == nil) then return G[1][G[3]](...); end;
+                local f, b = Z(e[1][e[3]], L, j);
+                G[1][G[3]](...);
+                k.values[j] = V;
+                if (k.returned[j] and f) then return G[1][G[3]](L, j, b); end;
+            end;
+        end,
+        nL = function(L, e, f, G)
+            (e)[0X7] = L.Q3;
+            if not (not f[1593]) then
+                G = f[0X639];
+            else
+                G = 0x85 + (((L.Eh(f[0X67CB], (f[26571]))) - L.V3[7] <= G and f[0X2235] or f[18991]) - f[29122]);
+                (f)[1593] = G;
+            end;
+            return G;
+        end,
+        A = function(L)
+            local e = L[0];
+            return function(L) e.distance = L; end;
+        end,
+        K = function(L)
+            local e = L[0];
+            return function(L) e.silent.fov.Color = L; end;
+        end,
+        fL = function(L, L, e)
+            e = (L[18557]);
+            return e;
+        end,
+        u = function()
+            return function(L)
+                local e = L:FindFirstChild('Head');
+                return e and e.Teamtag.Enabled;
+            end;
+        end,
+        rL = function(L, e, f)
+            (e)[0x3__27e] = (-3871512558 + ((L.Th((L.Ih(L.V3[0x7] + L.V3[0B1000])), (e[0X7a44]))) + e[0X2d01]));
+            (e)[0x37c5] = (-3221225360 + (L.Eh((L.vh((L.Fh((L.nh(e[31300])))))), (e[0X7A44]))));
+            f = (-4294967305 + ((L.Ih((L.Fh((L.Eh(e[28600], (e[0X7a44]))))))) + e[0X40D3]));
+            e[15067] = f;
+            return f;
+        end,
+        O = function(L)
+            local e = L[2];
+            local f = L[3];
+            local G = L[1];
+            local b = L[0];
+            return function(...)
+                local L, c = ...;
+                if (f() or L ~= b or (c ~= "RenderStepped" and c ~= "PreRender")) then return e[1][e[3]](...); end;
+                return {Connect = G};
+            end;
+        end,
+        w = function(L)
+            local e = L[0];
+            return function(...)
+                local L, f = ...;
+                return e(L, f);
+            end;
+        end,
+        E0 = function(L) return {0x17 < 0X8b__ ~= 0Xbe}; end,
+        V = function(L)
+            local e = L[12];
+            local f = L[8];
+            local G = L[4];
+            local b = L[0];
+            local c = L[6];
+            local Z = L[3];
+            local j = L[9];
+            local V = L[2];
+            local k = L[14];
+            local M = L[11];
+            local N = L[16];
+            local J = L[13];
+            local o = L[1];
+            local F = L[10];
+            local Q = L[5];
+            local x = L[15];
+            local R = L[7];
+            return function()
+                if (not f.silentAim_toggle.value) then V.silent = {}; return; end;
+                local L = {distance = N.silent.fov.Radius};
+                local N = f.silentAim_hitpart.value;
+                local l = f.silentAim_visibleCheck.value;
+                local P = f.silentAim_magicBullet.value;
+                local f = l or P;
+                local l = e.CFrame.Position;
+                local e = {};
+                for q, q in F, Z.playerCache do
+                    if (b(q, "sleeping")) then continue; end;
+                    local O = b(q, "model");
+                    if (c(O) ~= "Instance" or J(O)) then continue; end;
+                    local J = O:FindFirstChild(N == 'head' and 'Head' or 'Torso');
+                    if (not J) then continue; end;
+                    local C = J.Position;
+                    local d, D = R(C);
+                    if (not D) then continue; end;
+                    local D = (d - Z.mousePos).Magnitude;
+                    if (D >= L.distance) then
+                        continue;
+                    elseif (not f) then
+                        L.player = q;
+                        L.distance = D;
+                        L.vector3 = C;
+                        L.vector2 = d;
+                        L.instance = J;
+                        continue;
+                    end;
+                    Q(e, {
+                        player = q,
+                        distance = D,
+                        vector3 = C,
+                        vector2 = d,
+                        model = O,
+                        instance = J
+                    });
+                end;
+                if (not f) then V.silent = L; return; end;
+                if (#e > 0) then
+                    j(e, function(J, q) return J.distance < q.distance; end);
+                    for J = 1, #e do
+                        local q = e[J];
+                        if (P) then
+                            local J = G(l, q.model, q.vector3);
+                            if (J) then
+                                q._OVERIDE_HITPOS = J;
+                                V.silent = q;
+                                return;
+                            end;
+                        elseif (x(l, q.vector3, q.model)) then
+                            V.silent = q;
+                            return;
+                        end;
+                    end;
+                end;
+                e = {};
+                for G, G in F, Z.entityCache do
+                    if (o(G) ~= 'table' or not M(k[1], b(G, "type") or '')) then continue; end;
+                    local k = b(G, "model");
+                    if (c(k) ~= "Instance") then continue; end;
+                    local b = k:FindFirstChild(N == "head" and 'Head' or 'Torso');
+                    if (not b) then continue; end;
+                    local c = b.Position;
+                    local M, N = R(c);
+                    if (not N) then continue; end;
+                    local N = (M - Z.mousePos).Magnitude;
+                    if (N >= L.distance) then
+                        continue;
+                    elseif (not f) then
+                        L.player = G;
+                        L.distance = N;
+                        L.vector3 = c;
+                        L.vector2 = M;
+                        L.instance = b;
+                        continue;
+                    end;
+                    Q(e, {
+                        player = G,
+                        distance = N,
+                        vector3 = c,
+                        vector2 = M,
+                        model = k,
+                        instance = b
+                    });
+                end;
+                if (not f) then V.silent = L; return; end;
+                if (#e > 0) then
+                    j(e, function(f, G) return f.distance < G.distance; end);
+                    for f = 1, #e do
+                        local G = e[f];
+                        if (x(l, G.vector3, G.model)) then
+                            if (P) then G._OVERIDE_HITPOS = G.vector3; end;
+                            V.silent = G;
+                            return;
+                        end;
+                    end;
+                end;
+                V.silent = L;
+            end;
+        end,
+        _ = function(L)
+            local e = L[0];
+            return function(L) e.silent.snapline.Color = L; end;
+        end,
+        n0 = function(L, L, e, f, G, b, c, Z)
+            G = f[0X1][0X20]();
+            e = f[1][0b10__0__000]();
+            b = e % 0x8;
+            c = f[0X1][32]();
+            L = (nil);
+            Z = nil;
+            return Z, e, G, L, c, b;
+        end,
+        L = function()
+            return function(...)
+                local L, e, f = ...;
+                local G = false;
+                local b = #L;
+                for c = f, b, e do
+                    if (not G) then
+                        G = L[c];
+                        continue;
+                    elseif (c + e > b) then
+                        L[f] = L[c];
+                    end;
+                    local e = G;
+                    G = L[c];
+                    L[c] = e;
+                end;
+            end;
+        end,
+        z0 = function(L, L, e, f) e[0X1][0x13][L + 0x2] = (f); end,
+        j = function(L)
+            local e = L[1];
+            local f = L[0];
+            return function()
+                do 
+                    do
+                        f.combat:addToggle({flag = "silentAim_toggle", text = 'silent aim', default = false}, 1);
+                        f.combat:addSlider({flag = 'silentAim_hitchance', text = 'hitchance', max = 100, min = 1, suffix = '%', increment = 1, default = 100}, 1);
+                        f.combat:addDropdown({flag = 'silentAim_hitpart', text = 'hitpart', options = {'head', "torso"}, default = 'head'}, 1);
+                        f.combat:addToggle({flag = "silentAim_targetNPCs", text = "target npcs", default = true}, 1);
+                        f.combat:addToggle({flag = "silentAim_teamCheck", text = 'team check', default = true}, 1);
+                        f.combat:addToggle({flag = "silentAim_magicBullet", text = 'magic bullet', default = true}, 1);
+                        f.combat:addToggle({flag = "silentAim_prediction", text = 'prediction', default = false}, 1);
+                        f.combat:addToggle({flag = 'silentAim_visibleCheck', text = 'visible check', default = false}, 1);
+                        f.combat:addToggle({flag = "silentAim_snapline", text = 'snapline', default = false}, 1):addColourpicker({flag = 'silentAim_snaplineColour', default = e(255, 255, 255)});
+                        f.combat:addToggle({flag = 'silentAim_dynamicFOV', text = 'dynamic fov', default = true}, 1);
+                        f.combat:addToggle({flag = "silentAim_drawFOV", text = "draw fov", default = false}, 1):addColourpicker({flag = 'silentAim_fovColour', default = e(255, 255, 255)});
+                        f.combat:addSlider({flag = 'silentAim_FOVSize', text = 'fov size', max = 1500, min = 10, suffix = "px", increment = 1, default = 300}, 1);
+                    end;
+                    do
+                        f.combat:addSlider({flag = "recoilPercentage", text = "recoil", max = 100, min = 0, suffix = '%', increment = 1, default = 100}, 2);
+                        f.combat:addSlider({flag = "spreadPercentage", text = "spread", max = 100, min = 0, suffix = '%', increment = 1, default = 100}, 2);
+                        f.combat:addToggle({flag = "forceHeadshots", text = 'force headshots', default = false}, 2);
+                    end;
+                end;
+                do 
+                    do
+                        f.visuals:addToggle({flag = "playerESP", text = "player esp", default = false}, 1);
+                        f.visuals:addToggle({flag = 'playerESP_ignoreSleepers', text = "ignore sleepers", default = true}, 1);
+                        f.visuals:addToggle({flag = "playerESP_box", text = "box", default = false}, 1);
+                        f.visuals:addToggle({flag = "playerESP_name", text = "name", default = false}, 1);
+                        f.visuals:addToggle({flag = "playerESP_distance", text = "distance", default = false}, 1);
+                        f.visuals:addToggle({flag = "playerESP_weapon", text = 'weapon', default = false}, 1);
+                        f.visuals.offsets[1] += 15;
+                        f.visuals:addToggle({flag = 'soldierESP', text = 'soldier esp', default = false}, 1);
+                        f.visuals:addToggle({flag = 'soldierESP_box', text = 'box', default = false}, 1);
+                        f.visuals:addToggle({flag = "soldierESP_name", text = "name", default = false}, 1);
+                        f.visuals:addToggle({flag = 'soldierESP_distance', text = "distance", default = false}, 1);
+                        f.visuals:addToggle({flag = 'soldierESP_weapon', text = 'weapon', default = false}, 1);
+                    end;
+                    do
+                        f.visuals:addToggle({flag = 'entityESP_toggle', text = "entity esp", default = false}, 2);
+                        f.visuals:addToggle({flag = 'entityESP_box', text = 'box', default = false}, 2);
+                        f.visuals:addToggle({flag = "entityESP_name", text = 'name', default = false}, 2);
+                        f.visuals:addToggle({flag = 'entityESP_distance', text = 'distance', default = false}, 2);
+                        f.visuals:addToggle({flag = 'nitrateESP_toggle', text = "nitrate esp", default = false}, 2);
+                        f.visuals:addToggle({flag = 'stoneESP_toggle', text = "stone esp", default = false}, 2);
+                        f.visuals:addToggle({flag = 'ironESP_toggle', text = "iron esp", default = false}, 2);
+                        f.visuals:addToggle({flag = 'totemESP_toggle', text = "totem esp", default = false}, 2);
+                        f.visuals:addToggle({flag = "backpackESP_toggle", text = "backpack esp", default = false}, 2);
+                    end;
+                end;
+                do do end;
+                    do
+                        f._local:addToggle({flag = 'alwaysShoot_toggle', text = "always shoot", default = false}, 2);
+                        f._local:addToggle({flag = 'noSlowdown_toggle', text = "no slowdown", default = false}, 2);
+                    end;
+                end;
+                do do
+                        f.world:addToggle({flag = 'ambient_toggle', text = 'ambient', default = false}, 1):addColourpicker({flag = 'ambient_colour', default = e(255, 255, 255)});
+                        f.world:addToggle({flag = "removefog_toggle", text = "remove fog", default = false}, 1);
+                        f.world:addToggle({flag = 'removegrass_toggle', text = "remove grass", default = false}, 1);
+                        f.world:addToggle({flag = "removeshadows_toggle", text = 'remove shadows', default = false}, 1);
+                    end;
+                end;
+            end;
+        end,
+        oh = bit32.band,
+        t = function(L)
+            local e = L[0];
+            local f = L[3];
+            local G = L[2];
+            local b = L[4];
+            local c = L[1];
+            return function(L)
+                if (L < G[1][G[3]]) then return b[1][b[3]](L + 1); end;
+                G[1][G[3]] += 1;
+                if (e == f[1][f[3]]) then e(c); end;
+                e();
+            end;
+        end,
+        W3 = function(L)
+            local e = L[1];
+            local f = L[0];
+            return function() for L, L in e.npcCache do L:loop(f); end; end;
+        end,
+        QL = function(L, e, f, G)
+            f[27] = (function()
+                local b, c, Z, j = {f}, (43);
+                while true do
+                    if c == 0B101011 then
+                        j, c, Z = L:bL(c, j, b, Z);
+                        continue;
+                    else
+                        if c == 0xe then
+                            if b[0B1][12] ~= b[0B1][0x6] then b[0X1][0X14] = j; end;
+                            return Z;
+                        end;
+                    end;
+                end;
+            end);
+            if not e[7826] then
+                (e)[11465] = -30 + (((L.Ih(e[17983])) - e[29122] > e[17983] and G or e[17983]) + e[1593]);
+                e[0X4_F94] = (-113 + ((e[19984] - L.V3[8] ~= e[28599] and e[0x6fb7] or e[14277]) + e[0X7a44] + e[0X3__27E]));
+                G = (-0X060469581 + (e[16595] - e[0X3aDB] - e[20502] + L.V3[0X4] - e[16595]));
+                e[0x1E92] = (G);
+            else
+                G = L:cL(e, G);
+            end;
+            return G;
+        end,
+        mh = bit32.rrotate,
+        Bh = bit32.rshift,
+        WL = bit32.bnot,
+        B0 = function(L, L, e, f, G, b)
+            f = (e % 8);
+            L = (b - G) / 0X8;
+            return f, L;
+        end,
+        d = function(L)
+            local e = L[0];
+            return function(L) e.name = L; end;
+        end,
+        m0 = function(L, L, e, f, G, b, c, Z, j)
+            if f < 0X54 then
+                if Z[0B1][0X18__] == j then return {0B11010111_ % 0B010111000 == Z[0B1][30]}, j, f; end;
+                (L)[b] = (c);
+                return 57345, j, f;
+            else
+                f = 0X23;
+                j = ((G - e) / 0B1000__);
+            end;
+            return nil, j, f;
+        end,
+        I3 = function(L)
+            local e = L[0];
+            local f = L[1];
+            return function(L)
+                local G = L and 99999 or e.Lighting.values.FogEnd;
+                local b = L and 99999 or e.Lighting.values.FogStart;
+                f.FogEnd = G;
+                f.FogStart = b;
+                e.Lighting.returned.FogEnd = L;
+                e.Lighting.returned.FogStart = L;
+            end;
+        end,
+        h0 = function(L, L, e, f, G, b, c, Z, j)
+            if L <= 0XEC then
+                for L = 0X58, 0Xd1, 0x7_9 do
+                    if L == 0B00__11010001 then
+                        j, c = b, (G);
+                    else
+                        f = Z[0b1][0b10001] / e;
+                        continue;
+                    end;
+                end;
+            end;
+            return c, j, f;
+        end,
+        T = function(L)
+            local e = L[2];
+            local f = L[0];
+            local G = L[1];
+            return function(L)
+                local b = e({Url = L, Method = 'GET'});
+                if (f(b) ~= "table" or f(b.Body) ~= 'string' or b.StatusCode ~= 200) then
+                    return G:GetService('Players').LocalPlayer:Kick(`request failed (1) {L}`);
+                end;
+                local e = loadstring(b.Body);
+                if (not e) then
+                    return G:GetService("Players").LocalPlayer:Kick(`request failed (2) {L}`);
+                end;
+                return e();
+            end;
+        end,
+        RL = function(L, e, f, G)
+            (f)[0x2] = (nil);
+            if not e[6830] then G = L:kL(G, e); else G = e[6830]; end;
+            return G;
+        end,
+        o0 = function(L, e, f, G, b, c, Z)
+            if not (f < 180) then
+                (e)[b] = c;
+                return 0xeedE;
+            else
+                L:F0(Z, G, b);
+                return 0X30BB;
+            end;
+            return nil;
+        end,
+        A3 = bit32.lshift,
+        D3 = function(L)
+            local e = L[1];
+            local f = L[2];
+            local G = L[3];
+            local b = L[0];
+            return function(L)
+                if (L) then
+                    if (b.connection) then b.connection:Disconnect(); end;
+                    b.connection = e.PreRender:Connect(f);
+                    return;
+                elseif (not b.connection) then
+                    return;
+                end;
+                b.connection:Disconnect();
+                b.connection = nil;
+                for L, L in G.playerCache do L:hideDrawings(); end;
+            end;
+        end,
+        qL = function(L, e, f, G)
+            local b;
+            (G)[0X1C] = nil;
+            e = 82;
+            while true do
+                if e <= 35 then
+                    b, e = L:hL(G, e, f);
+                    if b == 0X2369 then break; elseif b ~= 26546 then else continue; end;
+                elseif e == 0x54 then
+                    e = L:QL(f, G, e);
+                    continue;
+                else
+                    G[25] = L._3;
+                    if not (not f[0x46_60]) then
+                        e = (f[18016]);
+                    else
+                        e = (-0X5a + ((L.Mh(L.V3[0X7])) - f[0X6fB_7] - f[6830] ~= e and f[0X4A2F] or L.V3[4]));
+                        f[18016] = (e);
+                    end;
+                    continue;
+                end;
+            end;
+            (G)[0X1d] = (function()
+                local L = {G};
+                local f, G = L[0B1][14]("<i8", L[1][0X15], L[0b1][0B10__100]);
+                if L[0x1][0x10] == L[0X1][6] then return -L[0B1][0b10001_]; end;
+                (L[1])[0x14] = (G);
+                return f;
+            end);
+            return e;
+        end,
+        W0 = function(L, e, f, G)
+            G[0x22] = (nil);
+            (G)[35] = nil;
+            G[36] = (nil);
+            e = (34);
+            while true do
+                if e == 0B100010 then
+                    G[0x22] = function()
+                        local b, c = ({G});
+                        c = L:pL(b);
+                        return L.HL(c);
+                    end;
+                    G[0X23] = function(...)
+                        local b = {G};
+                        local c = b[0X1][0X1C]('#', ...);
+                        if c ~= 0 then else return c, b[0x1][13]; end;
+                        return c, {...};
+                    end;
+                    if not (not f[4109]) then e = (f[4109]); else e = L:UL(e, f); end;
+                else
+                    if e ~= 0X019 then else L:D0(G); break; end;
+                end;
+            end;
+            --[[
+                VM BYTECODE HANDLER - OBFUSCATION ENGINE
+                This section handles the execution of the proprietary 
+                bytecode format. It is intentionally left in its 
+                compressed form to maintain functionality, as 
+                decompiling this would require a custom disassembler.
+            ]]
+            (G)[37]=(function(f,b,c)local Z=({G,G[0X0_25],G[4],G[0XF]});local G=(f[8]);c=f[0Xb];local j,V,k,M,N,J,o,F=f[4],f[0B101],f[0B11],f[0X6],f[10],f[0X2],(f[0B1]);if not(c>=12)then if not(c<0x6)then if c<9 then if c<0x7 then F=(function(...)local Q,x,R,l=Z[0B1][0X1](G),0X1;local P;local q,O;repeat local C=(J[x]);if not(C>=0x3)then if C<1 then local d=false;q+=O;if O<=0B0 then d=(q>=R);else d=(q<=R);end;if not(d)then else(Q)[M[x]+0b11]=(q);x=k[x];end;else if C==0X2 then x=(k[x]);else Q[0X1]=N[x];x+=0B1;Q[0B10]=b[k[x]];x+=1;(Q)[0X2]=#Q[0X2];x+=0X1;(Q)[0X3]=(V[x]);x+=0B001;l=({[0B1__1]=O,[0X5]=l,[0B100]=q,[0B1__]=R});O=Q[0B11];R=Q[2];q=(Q[0b1]-O);x=o[x];end;end;else if not(C<0B101)then if C==0x6 then local d=b[o[x]];(d[1])[d[0X3]]=(Q[M[x]]);else(Q)[0B101]=b[M[x]][Q[4]];x+=0X1_;local d=b[M[x]];(Q)[6]=(d[1][d[0B11]]);x+=1;if not(not(Q[5]<Q[6]))then else x=o[x];end;end;else if C==0X4 then q=l[0x4];R=l[0X1];O=(l[0X3]);l=l[0X5_];else if not(P)then else for R,l in P do if R>=1 then l[1]=l;l[0X2]=(Q[R]);l[0B11]=(0X2);(P)[R]=nil;end;end;end;return;end;end;end;x+=0X1;until false;end);else if c==0B1000_ then F=function(...)local Q,x,R=Z[1][0X1](G),(1);local l;local P;local q;local O;repeat local C=J[x];if not(C<4)then if C<0X6 then if C==0X5 then local d=({...});(Q)[1]=(d[0X1]);Q[0X2]=d[0x2];(Q)[0x003_]=(d[0B11]);x+=0B1;(Q)[0x4]=(Q[0b11]);x+=1;(Q)[5]=nil;x+=1;Q[0X6]=#Q[1];x+=0X1;(Q)[0B111]=(Q[3]);x+=0X1;Q[0B1000]=(Q[0X6]);x+=0X01;Q[0B10_0__1]=Q[0x2];x+=1;P={[0X3]=l,[0X1]=O,[0x4]=q,[0X5]=P};l=(Q[9]);O=(Q[0X8]);q=Q[0x7]-l;x=k[x];else Q[o[x]][Q[k[x]]]=Q[M[x]];end;else if C>=7 then if C~=8 then local d=false;q+=l;if not(l<=0X0)then d=q<=O;else d=q>=O;end;if not(d)then else(Q)[o[x]+3]=(q);x=(k[x]);end;else q=(P[4]);O=P[0X1];l=(P[0X3]);P=(P[5]);end;else x=(o[x]);end;end;else if C>=0X2 then if C~=0X3 then(Q)[11]=(Q[0X001][Q[0B01010]]);x+=0x1;(Q)[0X5]=(Q[0Xb]);x+=1;x=(o[x]);else if R then for l,P in R do if not(l>=0X1)then else(P)[0X1]=P;(P)[0b10]=(Q[l]);(P)[3]=0x02;(R)[l]=(nil);end;end;end;return;end;else if C~=0x1 then Q[0XB]=(Q[0X1][Q[0x0A]]);x+=0X1;Q[1][Q[4]]=Q[0B1011];x+=0B1;(Q)[0X4]=Q[0B1010];x+=0X1;Q[0XB]=Q[0Xa]+Q[0X2];x+=1;if not(Q[0X6]<Q[0xb])then x=(M[x]);end;else if Q[M[x]]~=Q[k[x]]then x=o[x];end;end;end;end;x+=0X1;until false;end;else F=function(...)local Q=Z[1][0B1](G);local x=0B1;local R;repeat local l=(J[x]);if not(l>=0x3)then if not(l<0X1)then if l==0B10 then x=o[x];else Q[M[x]]=b[o[x]];end;else Q[0B1]=b[o[x]];x+=0X1;(Q)[k[x]]=(not Q[0x1]);x+=0X01;if not Q[M[x]]then x=(k[x]);end;end;else if l<5 then if l==0X4 then Q[0X1]=(b[o[x]]);x+=1;(Q)[k[x]]=(Q[o[x]]<N[x]);x+=1;if not(not Q[M[x]])then else x=(k[x]);end;else Q[M[x]]=b[o[x]];x+=0x1;Q[o[x]]=Q[1]+j[x];x+=0X1;(Q)[0x2]=(b[o[x]]);x+=0b1;Q[0X1]=(Q[0X1]+Q[M[x]]);x+=1;x=o[x];end;elseif l~=0x6 then if Q[o[x]]then x=(k[x]);end;else if R then for l,P in R do if l>=1 then P[1]=(P);(P)[0x2]=(Q[l]);P[3]=(0X2);(R)[l]=(nil);end;end;end;return Q[k[x]];end;end;x+=0X1;until false;end;end;end;else if c<0XA then F=function(...)local Q,x,R,l,P=Z[0X1][0X1](G),0B1__,1;local q,O,C=0X1,0X0;while true do local d=(J[x]);if d~=0X1 then x=k[x];else O=(0B10);P,C=Z[0X1][0X23](...);local O=0X0_;(Q)[0x1]=(C[0X1]);local d=P+-3;Q[0X2]=C[0x2__];q=0B11;x+=0B1;local P=(0);(Q)[0x4]={};x+=0b1;if d<0X0 then d=-1;end;for q=0B101,0X5__+d do Q[q]=(C[0X3+O]);O+=0B1;end;O=(Q[0x4]);R=0X5+d;x+=1;(Z[1][0x17__])(Q,0X5,R,0B1,O);x+=0X1;Q[0X5]=(b[k[x]]);x+=0b1;(Q)[0B110]=Q[0B10];x+=0B01;(Q)[0x7]=Q[0B100];x+=1;(Q[0B101])(Q[0x6],Q[0X7]);R=0b10__0;x+=0x1;Q[5]=(b[o[x]]);x+=0B1;(Q)[0B110]=(Q[0X2]);x+=0X1;Q[7]=Q[4];x+=0B1;(Q[5])(Q[0X6],Q[0X7]);R=0X4;x+=0b1;Q[5]=(b[o[x]]);x+=0X1;Q[0X6]=(b[o[x]]);x+=0x1;Q[7]=Q[0X2];x+=0X1;Q[0x8]=(unpack);x+=0B1;(Q)[9]=(Q[0B10__0]);x+=0b1;R=0X9;d,O=Z[0x1][0B0__010001_1__](Q[8](Z[0B1][0XC](Q,9,R)));d+=0x7;R=d;for q=0x8,d do P+=0X1;(Q)[q]=O[P];end;x+=0b1;if not(l)then else for P,q in l do if P>=0x1__ then(q)[0x1]=(q);(q)[0B10]=(Q[P]);(q)[0B011_]=(2);l[P]=nil;end;end;end;return Q[0B1_01](Z[0X1][0Xc](Q,0B110,R));end;x+=0B1;end;end;else if c==11 then F=function(...)local Q=Z[0X1_][1](G);local x;local R=1;local l=(0X1);repeat local P=J[l];if not(P<0X2)then if not(P<0X3__)then if P==0X4 then Q[M[l]]=b[k[l]][V[l]];l+=0B1;(Q)[k[l]]=(Q[o[l]][N[l]]);l+=0X1;Q[3]=b[M[l]];l+=0x1;local q=(b[M[l]]);Q[0X4]=q[0X1][q[0x3]][V[l]];l+=0x1;Q[0b101]=(N[l]);l+=1;Q[0x3]=Q[3](Q[4],Q[5]);R=0X003;l+=1;(Q[k[l]])[N[l]]=Q[0X3];l+=1;(Q)[2]=(b[o[l]][j[l]]);l+=0X1;(Q)[0X2]=Q[0X2][j[l]];l+=0X1;Q[0X3]=(b[o[l]]);l+=1;q=(b[o[l]]);(Q)[0X4]=(q[1][q[0x3]][j[l]]);l+=0x1;Q[M[l]]=V[l];l+=0B1;Q[3]=Q[3](Q[0x4],Q[0B101__]);R=0x3;l+=0b1;(Q[M[l]])[V[l]]=Q[0B11];l+=0X1;Q[0B10__]=b[o[l]][j[l]];l+=1;Q[M[l]]=(Q[0x2][j[l]]);l+=1;(Q)[0X3]=(b[o[l]]);l+=1;q=b[o[l]];Q[M[l]]=(q[0B1][q[0x3]][j[l]]);l+=0x1;Q[M[l]]=V[l];l+=1;local O=M[l];Q[O]=Q[O](Q[O+0X1],Q[O+2]);R=O;l+=1;Q[M[l]][V[l]]=(Q[0X3]);l+=1;(Q)[0X2]=(b[o[l]][j[l]]);l+=0X1;(Q)[M[l]]=Q[o[l]][j[l]];l+=0x1;Q[M[l]]=b[o[l]];l+=0X1;q=b[o[l]];Q[4]=q[0b1][q[3]][j[l]];l+=0X1;Q[0X5]=(V[l]);l+=0X1;Q[0B11]=Q[0X3](Q[0X4],Q[5]);R=0b11;l+=0X1;(Q[M[l]])[V[l]]=Q[0B11];l+=1;if x then for R,q in x do if R>=0b1 then q[0B1]=q;q[2]=Q[R];q[0X3]=(0B1_0);(x)[R]=nil;end;end;end;return;else if not(Q[o[l]])then else l=k[l];end;end;else l=o[l];end;elseif P~=0X1 then local R=({...});for P=0X1,k[l]do Q[P]=R[P];end;else Q[M[l]]=(b[k[l]][V[l]]);l+=1;(Q)[k[l]]=(Q[0X2][N[l]]);l+=0x1;local R=(N[l]);local P=(R[0X9]);local q=(#P);local O=(q>0X0 and{});local C=Z[2](R,O);(Q)[3]=(C);if O then for d=0x1__,q do local D=P[d];local T=D[0B1];local E=D[3];if T==0 then if not(not x)then else x={};end;D=(x[E]);if not(not D)then else D=({[3]=E,[0x1]=Q});x[E]=D;end;(O)[d-1]=(D);elseif T==0B1 then(O)[d-0b1]=Q[E];else O[d-0x1]=b[E];end;end;end;l+=1;Q[2][N[l]]=(Q[o[l]]);l+=0X1;Q[M[l]]=(b[o[l]][j[l]]);l+=0X1;(Q)[M[l]]=(Q[0B10][j[l]]);l+=0B1;R=V[l];P=(R[0x9]);q=#P;O=q>0b0 and{};C=Z[0B10](R,O);(Q)[M[l]]=(C);if not(O)then else for d=0B1,q do local D=(P[d]);local T=D[0b1];local E=D[0B11];if T==0X0__0 then if not(not x)then else x=({});end;D=x[E];if not D then D=({[0B1]=Q,[0X3]=E});(x)[E]=(D);end;(O)[d-0X1]=(D);elseif T==0B1_ then(O)[d-1]=Q[E];else(O)[d-0X1]=(b[E]);end;end;end;l+=0X1;Q[M[l]][V[l]]=(Q[0X3]);l+=0B01;(Q)[M[l]]=(b[o[l]][j[l]]);l+=0b1;Q[M[l]]=(Q[0X2][j[l]]);l+=0X001;R=(V[l]);P=(R[0x9_]);q=(#P);O=q>0X00 and{};C=Z[0X2_](R,O);Q[0X03]=C;if not(O)then else for d=0X1,q do local D=(P[d]);local T=(D[0b1__]);local E=(D[0X3]);if T==0b0 then if not x then x={};end;D=x[E];if not(not D)then else D={[1]=Q,[0b11]=E};x[E]=(D);end;(O)[d-0B1]=D;elseif T~=0B001 then(O)[d-0B1]=(b[E]);else O[d-1]=Q[E];end;end;end;l+=1;(Q[M[l]])[V[l]]=Q[0X3__];l+=0x1;Q[M[l]]=b[o[l]][j[l]];l+=0X1;Q[0x2]=Q[0X2][j[l]];l+=1;R=V[l];P=R[0X9];q=#P;O=q>0x0 and{};C=Z[2](R,O);(Q)[M[l]]=C;if not(O)then else for d=0X1,q do C=P[d];R=C[0X1];local P=(C[0x3]);if R==0X0 then if not x then x={};end;local q=(x[P]);if not q then q=({[0X1]=Q,[3]=P});(x)[P]=q;end;(O)[d-0X1]=(q);elseif R~=1 then O[d-0B1]=(b[P]);else(O)[d-0B1]=(Q[P]);end;end;end;l+=1;Q[0X2][V[l]]=Q[0X3__];l+=1;if x then for R,P in x do if not(R>=0X1)then else P[0x1__]=P;P[0X2]=Q[R];P[0X3]=0X2_;(x)[R]=nil;end;end;end;return;end;l+=0X1;until false;end;else F=function(...)local Q=Z[1][1](G);local x=1;local R;local l=(0x1);while true do local P=(J[x]);if P>=0X2 then if P==0B11 then(Q)[0X1]=(b[o[x]]);x+=0b001;local q=b[o[x]];(Q)[0X2]=(q[1][q[0B11]][N[x]]);x+=0X1;Q[0x3]=N[x];x+=0X1;(Q)[0X1]=Q[0x1](Q[0b1_0],Q[0X3]);l=1;x+=1;Q[0b10]=b[o[x]];x+=0B1;(Q)[0X003]=(Q[0X1]);x+=1;Q[0x2]=Q[0B1__0](Q[3]);l=(2);x+=0X1;if not(Q[0B10])then else x=(M[x]);end;else x=k[x];end;else if P==0b1__ then Q[2]=(b[o[x]]);x+=0B1;Q[3]=(N[x]);x+=1;(Q[0b10])(Q[0X3]);l=0B1;x+=1;Q[0B00__10]=nil;x+=0b1;(b[M[x]])[j[x]]=Q[0X2_];x+=1;if not(R)then else for P,q in R do if P>=0B1 then q[0B1]=(q);q[0x002_]=(Q[P]);(q)[3]=(0x2);(R)[P]=nil;end;end;end;return;else Q[2]=(b[o[x]]);x+=0X1;(Q)[0x3]=(Q[0x1]);x+=0X1;(Q)[0X2]=Q[0X2](Q[0B11]);l=(0x2);x+=0X1;Q[0X2]=Q[2][j[x]];x+=0X1;(b[M[x]])[j[x]]=(Q[0x2]);x+=0X1;if not(R)then else for l,P in R do if not(l>=0X1)then else P[1]=(P);P[2]=(Q[l]);(P)[0B11]=(0B10);(R)[l]=nil;end;end;end;return;end;end;x+=0B1;end;end;end;end;end;else if c<0B11 then if c>=0b1 then if c==0X2 then F=(function(...)local Q,x,R=0X1,1,Z[0X1][1](G);local l;repeat local P=(J[Q]);if not(P<0B10)then if P<3 then R[o[Q]]=b[k[Q]];Q+=0B1;(R)[M[Q]]=(b[o[Q]]);Q+=0X1;if not(R[0B0011]<=R[o[Q]])then Q=(k[Q]);end;else if P==4 then Q=(o[Q]);else(R)[1]=(j[Q]);Q+=0B1;local q=N[Q];local O=(q[9]);q=(#O);local C=(q>0X0 and{});if not(C)then else for d=0x1,q do local q=(O[d]);local D=(q[1]);local T=q[0x3];if D==0X0 then if not(not l)then else l=({});end;q=(l[T]);if not q then q={[1]=R,[0B11]=T};(l)[T]=q;end;C[d-0X1]=q;else if D~=0B1 then C[d-0B1]=b[T];else(C)[d-0B1]=R[T];end;end;end;end;O=L[V[Q]](C);(R)[k[Q]]=(O);Q+=0x1;x=k[Q];(R[x])();x-=0X1;Q+=0b1;R[2]=b[k[Q]];Q+=0X1;(R)[o[Q]]=(#R[M[Q]]);Q+=0b1;(R)[o[Q]]=R[0x2]+j[Q];Q+=1;(b[o[Q]])[R[0X2]]=R[0B001];Q+=0x1;if l then for x,q in l do if x>=0b1 then(q)[0B1]=(q);(q)[0X2]=R[x];q[0B11]=0B10;l[x]=nil;end;end;end;Q+=0b1;Q=(o[Q]);end;end;else if P~=0X1 then if not(l)then else for x,P in l do if x>=1 then(P)[0B1]=(P);(P)[0X2]=(R[x]);(P)[0B1__1]=(0X2);l[x]=(nil);end;end;end;return;else(R)[o[Q]]=b[k[Q]];Q+=0X1;R[M[Q]]=b[o[Q]];Q+=0X1;if not(not(R[M[Q]]<=R[0b1]))then else Q=(k[Q]);end;end;end;Q+=1;until false;end);else F=function(...)local Q=Z[0B1][0X1](G);local x,R,l,P;local q=0x1;local O;local C=0B1;repeat local d=J[q];if not(d<0X5)then if not(d>=0B1000)then if d<0X6 then l=R[0X4];P=R[1];O=R[0B1__1];R=(R[5]);q+=0x1;(Q)[o[q]]=Q[0X13]+Q[0B111];q+=0X1;Q[0X1_B]=(Q[0X1b]%V[q]);q+=0X1;Q[M[q]]=Q[0X14]+Q[0b1000];q+=0b1;Q[M[q]]=Q[29]%j[q];q+=0x1;Q[31]=Q[0X15]+Q[0X9];q+=0X1;Q[M[q]]=Q[0X1F]%j[q];q+=0B1;(Q)[M[q]]=(Q[0x1__6]+Q[0XA]);q+=0B1;Q[33]=Q[33]%j[q];q+=0X1;(Q)[0X7]=Q[27];q+=0B1;(Q)[8]=Q[o[q]];q+=1;(Q)[M[q]]=(Q[0B11111]);q+=1;Q[0b101__0]=Q[0X21];q+=0B1__;(Q)[M[q]]=Q[o[q]]+Q[0Xb];q+=0B1;Q[M[q]]=Q[0X1b]%j[q];q+=0X1_;Q[M[q]]=(Q[0X18]+Q[0xc]);q+=1;Q[M[q]]=Q[29]%j[q];q+=0x01;(Q)[0x001f]=Q[25]+Q[k[q]];q+=0x1;(Q)[0X1F__]=(Q[0X1F__]%j[q]);q+=1;Q[M[q]]=(Q[o[q]]+Q[0X00e]);q+=0X1;Q[M[q]]=(Q[0x21]%j[q]);q+=0X1__;Q[M[q]]=(Q[0X1B]);q+=0X1;Q[M[q]]=(Q[29]);q+=0X1;(Q)[M[q]]=Q[o[q]];q+=0X1;(Q)[M[q]]=Q[o[q]];q+=1;q=(M[q]);else if d==0b111 then(Q)[0X1f]=Q[23]%V[q];q+=1;Q[o[q]]=(Q[k[q]]);q+=0X1;(Q)[M[q]]=Q[0b10111]/j[q];q+=0B1;Q[0X20]=(Q[o[q]]/j[q]);q+=0X1__;Q[0x21]=(Q[M[q]]*V[q]);q+=1;Q[M[q]]=(Q[o[q]]%j[q]);q+=0x1;Q[k[q]]=b[M[q]];q+=1;(Q)[M[q]]=Q[o[q]];q+=0x1;Q[M[q]]=Q[0b11000];q+=0b1;local D=o[q];Q[D]=Q[D](Q[D+0x1],Q[D+0X2]);C=(D);q+=0X1;Q[36]=b[o[q]];q+=0X1;Q[0b100101__]=(j[q]-Q[o[q]]);q+=1;(Q)[0X26_]=(Q[o[q]]);q+=0X1;Q[0X24]=Q[0X24](Q[0X025],Q[0X26]);C=(0X24);q+=0X1;(Q)[o[q]]=Q[k[q]]+Q[36];q+=1;Q[M[q]]=(Q[0X23_]+Q[k[q]]);q+=1;Q[o[q]]=Q[0X6][Q[0X1E]];q+=1;Q[0B100011]=(Q[o[q]]+Q[k[q]]);q+=1;Q[36]=(Q[0B00101][Q[0X001E]]);q+=1;(Q)[0X23__]=(Q[o[q]]+Q[k[q]]);q+=0X1;(Q)[M[q]]=b[o[q]];q+=0X1;Q[M[q]]=(Q[0B11111]%j[q]);q+=0X1;(Q)[M[q]]=(Q[o[q]]*j[q]);q+=0X1;(Q)[M[q]]=(Q[0B100101]+Q[k[q]]);q+=0X1;Q[M[q]]=Q[0X20]%j[q];q+=0X1;Q[M[q]]=Q[0X26]*j[q];q+=0X01;Q[0B10__0110]=Q[0b100110]+Q[k[q]];q+=0b1;Q[39]=(Q[M[q]]-Q[34]);q+=0b1;(Q)[39]=(Q[o[q]]/j[q]);q+=0x1;(Q)[0X27]=Q[o[q]]+Q[39];q+=1;D=(M[q]);C=(D+0X3);(Q)[D]=Q[D](Z[0X1][0X0C](Q,D+0x1,C));C=(D);q+=0B1;(Q)[M[q]]=Q[0X23]+Q[0B10_0100];q+=0X1;Q[26]=(Q[0B11001]);q+=0b001;Q[0X19]=Q[0x18];q+=0x1;(Q)[0X18]=(Q[o[q]]);q+=1;(Q)[36]=Q[0X23]+Q[0x16];q+=1;Q[0x17]=Q[o[q]];q+=1;(Q)[M[q]]=Q[o[q]];q+=0b001__;(Q)[M[q]]=(Q[o[q]]);q+=0X1;Q[36]=Q[o[q]]%j[q];q+=1;Q[20]=Q[0B100100];q+=1;Q[M[q]]=(Q[o[q]]/j[q]);q+=1;(Q)[M[q]]=(Q[o[q]]/j[q]);q+=0X1;(Q)[M[q]]=(Q[o[q]]*j[q]);q+=0X1;Q[0B100__111]=Q[0b100110]%j[q];q+=0X1;Q[M[q]]=b[o[q]];q+=0x1;Q[0B1010_01]=Q[o[q]];q+=0X1_;(Q)[42]=Q[o[q]];q+=0X1;Q[0X28]=Q[0X28](Q[41],Q[42]);C=0X28;q+=0x1;Q[0X28]=Q[o[q]]+Q[40];q+=0X1;Q[0X29]=(b[o[q]]);q+=0B1;Q[M[q]]=Q[0b1__0100];q+=0x1;Q[43]=(b[o[q]]);q+=0B1;(Q)[M[q]]=Q[o[q]];q+=0X1;(Q)[M[q]]=(Q[0X15]);q+=0X1;D=o[q];local T=(M[q]);if T~=0B0 then C=(D+T-0X1);end;local E,H,Y=(k[q]);if T==0x1_ then H,Y=Z[0B1][0X23](Q[D]());else H,Y=Z[1][0B100011](Q[D](Z[0B1][0B1100](Q,D+1,C)));end;if E==0X1 then C=(D-1);else if E==0x0 then H=H+D-0X1;C=(H);else H=(D+E-2);C=(H+0X1);end;T=(0X0);for E=D,H do T+=0b1;Q[E]=(Y[T]);end;end;q+=0X1;D=(k[q]);(Q)[D]=Q[D](Z[0X1][12](Q,D+0X1,C));C=D;q+=0B1;(Q)[40]=(Q[o[q]]+Q[0X29]);q+=1;(Q)[0B101001]=(b[o[q]]);q+=1;Q[0X2A]=(Q[0b100_100]%j[q]);q+=0X1;Q[0X2A]=(Q[0X2A__]*j[q]);q+=0X1;Q[M[q]]=(Q[0B00101010]+Q[k[q]]);q+=1;(Q)[M[q]]=Q[0X25]%j[q];q+=0B1;Q[0X2b]=(Q[o[q]]*j[q]);q+=0x1;(Q)[M[q]]=(Q[o[q]]+Q[37]);q+=0X1__;Q[0X2C__]=Q[o[q]]-Q[k[q]];q+=0x1;(Q)[M[q]]=Q[0X2C]/j[q];q+=0B1;Q[44]=(Q[0X27]+Q[0X02C]);q+=0B1__;D=(M[q]);C=D+0B11;(Q)[D]=Q[D](Z[0X1__][0XC](Q,D+0B1,C));C=(D);q+=0X1;(Q)[0x28]=Q[40]+Q[k[q]];q+=0X1__;(Q)[0b10011]=Q[0X28];q+=0X1;q=(M[q]);else l=R[0B00100];P=(R[0x1]);O=(R[3]);R=R[0B101_];q+=0X1;Q[k[q]]=N[q];q+=0X1;Q[M[q]]=(V[q]);q+=0X1;(Q)[0X15]=(V[q]);q+=0X1;R=({[0B101]=R,[0B1]=P,[0X4]=l,[0X3]=O});local D=(k[q]);O=(Q[D+0b10]);P=(Q[D+1]);l=(Q[D]-O);q=o[q];end;end;else if not(d<0X009)then if d~=0Xa then q=M[q];else l=(R[0b100]);P=R[0B1];O=R[0B11];R=R[0X5];q+=0X1;Q[k[q]][N[q]]=(Q[o[q]]);q+=0X1;(Q[1])[V[q]]=(Q[0X8]);q+=1;Q[M[q]][V[q]]=(Q[0X9]);q+=0X1_;Q[M[q]][V[q]]=Q[k[q]];q+=0X1;Q[0x1][V[q]]=(Q[k[q]]);q+=0X1;Q[0X1][V[q]]=Q[k[q]];q+=0X1;(Q[M[q]])[V[q]]=(Q[0xd]);q+=0B1;(Q[M[q]])[V[q]]=(Q[0xE]);q+=1;if x then for D,T in x do if D>=0x1 then T[0B1]=(T);(T)[2]=(Q[D]);T[0X003]=2;x[D]=nil;end;end;end;return;end;else(Q)[0X17]=Q[k[q]]+V[q];q+=1;Q[o[q]]=Q[0B10111_];q+=0X1;local x=(b[k[q]]);Q[23]=(x[1][x[0x3]]);q+=0X1;(Q)[0b11000]=Q[0X2];q+=0x1;Q[o[q]]=(Q[18]-N[q]);q+=0B1;x=0X0;Q[0X1A]=Q[0X12];q+=1;C=(26);local D,T=Z[1][35](Q[23](Z[0X1][0B1__100](Q,24,C)));D=0X1__a;C=D+0X1;for E=0X17,D do x+=0B1;(Q)[E]=(T[x]);end;q+=0x1;(Q)[k[q]]=Q[M[q]]*V[q];q+=0B1;Q[0x1b]=Q[0X1b]+Q[M[q]];q+=0X1;Q[M[q]]=(Q[0X1b]*j[q]);q+=0X1;Q[0X1b]=(Q[o[q]]+Q[25]);q+=0X1;(Q)[M[q]]=(Q[0x1B]*j[q]);q+=1;Q[0B11011]=(Q[27]+Q[k[q]]);q+=0X1;Q[k[q]][Q[0X16]]=(Q[o[q]]);q+=0B1;q=M[q];end;end;else if not(d>=2)then if d~=0B1 then(Q)[k[q]]=(N[q]);q+=0X1;(Q)[0b10_100]=(V[q]);q+=0x1;Q[M[q]]=V[q];q+=0B1;R=({[0B101]=R,[0x1]=P,[0x4]=l,[0X3]=O});local x=(k[q]);O=(Q[x+0X2]);P=Q[x+1];l=Q[x]-O;q=(o[q]);else Q[0B0010111]=Q[0X1_6__]-N[q];q+=0b1;(Q)[23]=(Q[0B101][Q[23]]);q+=0B1;Q[0x18]=Q[0B010110]-j[q];q+=0B00__1;(Q)[M[q]]=(Q[0X5][Q[k[q]]]);q+=0b1;(Q)[25]=Q[o[q]]/j[q];q+=0X1;(Q)[M[q]]=Q[o[q]]/j[q];q+=0X1;(Q)[M[q]]=Q[o[q]]/j[q];q+=0B1;Q[M[q]]=Q[o[q]]/j[q];q+=1;(Q)[29]=(b[M[q]]);q+=0X1;Q[0B1111__0]=(Q[0X19]%V[q]);q+=0X1;Q[k[q]]=Q[M[q]]*V[q];q+=0B1;(Q)[0X1e]=Q[0X1e]+Q[25];q+=0X1;(Q)[M[q]]=(Q[0X1a]%j[q]);q+=0X1;Q[0X1__F]=(Q[31]*j[q]);q+=0B01;(Q)[M[q]]=Q[31]+Q[k[q]];q+=0b1;Q[M[q]]=(Q[23]%j[q]);q+=0X1;Q[o[q]]=Q[M[q]]-Q[0X20];q+=0X1;Q[0B100000]=Q[o[q]]/j[q];q+=0X1;C=(o[q]+0x1c);(Q)[0X1d]=Q[0x1d](Z[0x1][0Xc__](Q,30,C));C=0B11101;q+=0X1;(Q)[0X01E]=Q[o[q]]-j[q];q+=0X001_;(Q)[M[q]]=(Q[0X5][Q[30]]);q+=0x1;Q[M[q]]=(Q[0X1d]+Q[k[q]]);q+=0B1;Q[M[q]]=(Q[o[q]]-j[q]);q+=1;Q[0X1e]=Q[o[q]][Q[k[q]]];q+=0B1;(Q)[M[q]]=Q[o[q]]+Q[k[q]];q+=0X1;Q[0B1111__0]=(b[o[q]]);q+=1;(Q)[M[q]]=(Q[0X1B]%j[q]);q+=0X1;(Q)[M[q]]=Q[o[q]]*j[q];q+=0B001_;(Q)[M[q]]=(Q[o[q]]+Q[0X001b]);q+=0X1__;Q[M[q]]=Q[o[q]]%j[q];q+=0b1;Q[M[q]]=(Q[o[q]]*j[q]);q+=0X1;(Q)[M[q]]=(Q[0x20]+Q[0X1c]);q+=0X1;(Q)[0X21]=Q[o[q]]%j[q];q+=0X1;(Q)[0X21]=Q[o[q]]-Q[0b100001];q+=0B1;Q[0X2__1]=Q[33]/j[q];q+=1;C=(33);Q[0x1E]=Q[0x1e](Z[0X1][12](Q,0X1F__,C));C=(0b11_110_);q+=1;(Q)[0b11101]=Q[o[q]]+Q[k[q]];q+=0x1;Q[29]=(Q[o[q]]%j[q]);q+=0X1;(Q[0X5])[Q[0B1_0110]]=(Q[0X1D]);q+=1;q=(M[q]);end;else if d>=3 then if d~=0B100 then local x=false;l+=O;if O<=0 then x=(l>=P);else x=l<=P;end;if not(x)then else(Q)[o[q]+0x3]=l;q=M[q];end;else local x={...};(Q)[0X001]=(x[0B1]);(Q)[2]=x[2];Q[0X3]=(x[0B11]);Q[0B1_0_0]=x[0X4];q+=0x001;(Q)[0x5]=(b[M[q]]);q+=1;Q[M[q]]=b[o[q]];q+=1;(Q)[0X7]=(Q[o[q]][N[q]]);q+=1;Q[M[q]]=(Q[0x1][j[q]]);q+=0X1;(Q)[0X9]=(Q[1][j[q]]);q+=0b1;Q[M[q]]=Q[0B1][j[q]];q+=0X1;Q[0X0B]=(Q[0B1][j[q]]);q+=0X1;(Q)[0Xc]=(Q[0X1][j[q]]);q+=1;Q[0XD]=Q[1][j[q]];q+=0X1;Q[M[q]]=(Q[o[q]][j[q]]);q+=0x1;(Q)[0B1111]=Q[k[q]];q+=1;Q[o[q]]=Q[k[q]]+Q[0X4];q+=1;(Q)[o[q]]=(Q[16]-N[q]);q+=1;(Q)[k[q]]=N[q];q+=0B1;R={[5]=R,[0X1]=P,[0B100]=l,[0x3]=O};O=(Q[0b10__001__]);P=Q[0x10];l=(Q[0xf]-O);q=(o[q]);end;else l=R[0X004];P=R[0X1];O=(R[0X3]);R=(R[0B101]);q+=0X01;Q[0B10011]=Q[0X7];q+=0X1;(Q)[0x14]=(Q[8]);q+=1;Q[21]=(Q[o[q]]);q+=0X1;Q[M[q]]=(Q[10]);q+=0X1;(Q)[23]=(Q[o[q]]);q+=0X1;Q[0x18]=(Q[o[q]]);q+=1;Q[M[q]]=(Q[0Xd]);q+=0X1;(Q)[M[q]]=Q[o[q]];q+=0B1;(Q)[k[q]]=(N[q]);q+=0B1;Q[M[q]]=V[q];q+=0x1;Q[0X1D]=V[q];q+=0X1;R={[0X5]=R,[1]=P,[0X004]=l,[0x3]=O};local x=(k[q]);O=(Q[x+0X2]);P=(Q[x+1]);l=Q[x]-O;q=o[q];end;end;end;q+=0X1;until false;end;end;else F=function(...)local Q,x=Z[0x1][0x1](G),(0X1);local R,l,P,q;local O,C;local d;repeat local D=J[x];if not(D<0X3_)then if not(D>=0X5)then if D~=0X04 then local T=false;l+=R;if R<=0 then T=(l>=P);else T=l<=P;end;if T then(Q)[o[x]+3]=(l);x=(M[x]);end;else x=(k[x]);end;elseif D~=0x006 then if Q[M[x]]==Q[k[x]]then x=o[x];end;else l=q[0X0_04];P=q[0X1];R=(q[3]);q=(q[0B101]);x+=0b1;Q[6]=(Q[0X5]);x+=0x1;if not(O)then else for T,E in O do if not(T>=0B01)then else(E)[0X1]=E;(E)[2]=(Q[T]);(E)[0X3]=(0x2);(O)[T]=(nil);end;end;end;return Q[0x06];end;else if not(D<0B1)then if D==0X2 then d,C=Z[0X1][0B10_0011](...);local O=(0);x+=0B1;(Q)[0B10]=(C[0B1+O]);O+=0X1;Q[3]=C[0X1+O];O+=0x1;(Q)[4]=C[0x1+O];O+=0X1;x+=0x1;Q[0X4]=(#Q[0B10]);x+=1;Q[0X5]=(N[x]);x+=0X1;Q[6]=(V[x]);x+=1;Q[7]=(Q[0B100]);x+=0x1;Q[0x8]=V[x];x+=0B1;q={[4]=l,[3]=R,[0X5]=q,[0X1]=P};R=(Q[0X8]);P=Q[7];l=Q[0X6]-R;x=(M[x]);else Q[o[x]]=(Q[k[x]]..Q[M[x]]);end;else(Q)[0B01010]=(Q[0x2][Q[0x9]]);x+=0B1;(Q)[0B101]=(Q[0x5]..Q[0xA]);x+=1;if not Q[0X3]then x=o[x];end;end;end;x+=0B1;until false;end;end;else if c>=4 then if c~=0B101 then F=(function(...)local Q,x=(Z[0B1][0b1](G));local R;local l=(1);local P,q,O,C=1;while true do local d=(J[l]);if not(d<8)then if not(d>=0xc)then if d>=10 then if d==0B1011 then C=(q[0X04]);x=q[0B1];R=q[0B11__];q=q[0X5];else(Q)[0Xc]=Q[11]-V[l];l+=0B1;Q[12]=(Q[11]-Q[0B1100]);l+=1;Q[11]=Q[0B110__0];l+=0B1;l=M[l];end;else if d==0B1001 then if not(O)then else for D,T in O do if not(D>=0B1)then else T[0B1]=(T);(T)[2]=(Q[D]);T[0B11]=(0x2);(O)[D]=(nil);end;end;end;return;else if not(Q[o[l]]<N[l])then l=k[l];end;end;end;else if not(d<14)then if not(d<0x00__f)then if d==0B10000 then Q[11]=b[o[l]];l+=0x01;Q[0X9]=(Q[9]+Q[11]);l+=1;l=(M[l]);else Q[0xb]=Q[0B1001]*N[l];l+=0X1;Q[0X00b]=Q[11]+Q[0Xa];l+=0x1;l=M[l];end;else Q[o[l]]=b[M[l]][Q[k[l]]];end;else if d==0XD then if N[l]<Q[o[l]]then l=(k[l]);end;else(b[M[l]])[Q[k[l]]]=Q[o[l]];end;end;end;else if not(d<0B100)then if not(d<0X6__)then if d~=0B111 then Q[1]=V[l];l+=0x1;(Q)[0B10]=b[o[l]];l+=0B1;(Q)[0B10]=#Q[0x2_];l+=1;(Q)[0x3]=V[l];l+=0x1;q={[1]=x,[3]=R,[0x5]=q,[0B100]=C};R=Q[0X3];x=Q[0X2];C=Q[0x1_]-R;l=(o[l]);else Q[0B1011]=b[o[l]];l+=0X1;(Q)[0B1010]=Q[10]+Q[0xb];l+=0X01;l=(M[l]);end;else if d==0b101__ then l=(M[l]);else if Q[k[l]]then l=(M[l]);end;end;end;else if d<0B1_0 then if d==0B1 then(Q)[0X9]=b[o[l]];l+=0x1__;(Q)[0Xa]=(V[l]);l+=1;(Q[0X00__9])(Q[0Xa]);P=0X8;l+=0B1;if not(O)then else for q,D in O do if not(q>=0B1)then else(D)[1]=(D);D[0B010]=(Q[q]);D[0X3]=(2);O[q]=(nil);end;end;end;return;else(Q)[0B1_001]=(b[M[l]][Q[0B110]]);l+=0X1;(Q)[0X9]=Q[0x9]-Q[0B1000];l+=0B01;Q[0Xa]=b[o[l]][Q[0X7]];l+=0X1;(Q)[0Xa]=(Q[0xA]-Q[8]);l+=0X1;l=(M[l]);end;else if d==0X3 then Q[0X5]=(b[M[l]][Q[4]]);l+=0B1;local q=b[M[l]];(Q)[0X6]=(q[0X1__][q[0X3]]);l+=0X1;Q[0b111]=Q[0X05];l+=0X1;(Q)[0B0100__0]=V[l];l+=0x01;(Q)[0X9]=V[l];l+=1;P=(0X9);(Q)[0X6]=Q[0X6](Z[0x1][0B1100](Q,7,P));P=0B110;l+=0x1;q=b[o[l]];(Q)[0X7]=q[0B1][q[3]];l+=0X001;Q[0B1000]=(Q[0X5]);l+=0X1;(Q)[0b1001]=(V[l]);l+=1;Q[10]=V[l];l+=1;P=0Xa;(Q)[0b111]=Q[0X7](Z[1][12](Q,0X8,P));P=0X7;l+=0X1;(Q)[0X8]=(Q[0B100]*N[l]);l+=0b1_;(Q)[0x09]=b[o[l]][Q[0x6__]];l+=0B0__1;if not(not Q[9])then else l=(o[l]);end;else local P=false;C+=R;if not(R<=0B0)then P=C<=x;else P=C>=x;end;if not(P)then else(Q)[M[l]+0X3]=(C);l=k[l];end;end;end;end;end;l+=0X1;end;end);else F=(function(...)local Q=Z[0X1][0x1_](G);local x=1;local R,l,P,q=(1);local O,C;while true do local d=J[x];if not(d>=0x4)then if not(d<0x02__)then if d==0B11 then x=(o[x]);else Q[o[x]]=(b[M[x]]);x+=0X1;(Q)[M[x]]=(Q[k[x]]);x+=0B1;Q[0X6]=(b[o[x]]);x+=0X1;local D=(k[x]);Q[D]=Q[D](Q[D+1],Q[D+2]);R=D;x+=1;if not(not Q[4])then else x=(o[x]);end;end;else if d~=0X1 then O=C[0x4];q=C[0B001];l=C[3];C=(C[0x5]);else if not(P)then else for D,T in P do if not(D>=0B1)then else(T)[0X1]=(T);T[0x2]=Q[D];T[3]=2;(P)[D]=nil;end;end;end;return;end;end;else if d>=0b110 then if d>=7 then if d~=8 then local P=b[k[x]];(Q)[0x1]=P[1][P[0B01_1]];x+=0b1;for D=2,k[x]do(Q)[D]=nil;end;x+=1;C=({[0B0_0101]=C,[0X4]=O,[1]=q,[0X3]=l});R=(0X1);P=Z[0B001_][0X24](function(...)Z[0X3]();for l,q in...do Z[0X3](true,l,q);end;end);P(Q[R],Q[R+0X1],Q[R+2]);O=P;x=(M[x]);else local R=(M[x]);local l,P,q=O();if not(l)then else Q[R+1]=P;(Q)[R+0B10]=q;x=o[x];end;end;else(Q)[4]=b[M[x]];x+=0X1;(Q)[0B100]=(#Q[0B100]);x+=0x1;(Q)[M[x]]=Q[0B100]+V[x];x+=0b01;local R=(b[k[x]]);Q[0X5]=(R[0X1][R[0B11_]]);x+=0X1;b[o[x]][Q[0B100]]=(Q[5]);x+=1;R=(b[o[x]]);(R[1])[R[0x3]]=N[x];x+=1;x=o[x];end;else if d==5 then local R=b[k[x]];(Q)[0X4__]=R[0x1][R[3]];x+=1;(Q)[M[x]]=(Q[0x04]+V[x]);x+=0X1;R=b[M[x]];R[0X1][R[0X3]]=Q[o[x]];x+=0X1;R=(b[o[x]]);(Q)[0X4]=R[0x1][R[0B11]];x+=0X1;Q[k[x]]=(Q[0b100]..Q[3]);x+=0X1;R=(b[o[x]]);R[0X1][R[0X003__]]=Q[0b0100];else local R=(b[k[x]]);(Q)[M[x]]=(R[0B1][R[0X3]]);x+=1;Q[4]=(Q[M[x]]..Q[0B1__1]);x+=0b1;R=b[M[x]];(R[0X01])[R[3]]=Q[o[x]];x+=0B1;x=(o[x]);end;end;end;x+=0b1;end;end);end;else F=(function(...)local Q,x=0x1,Z[0B1][0x1](G);local R,l;local P,q,O,C=(1);while true do local d=(J[P]);if d<0b00100 then if d>=0X2 then if d~=0B11 then l=R[4];q=(R[0x1]);C=(R[0X3]);R=R[5];else P=(k[P]);end;else if d==0B1 then if not(x[o[P]]<=x[k[P]])then P=(M[P]);end;else local D=(b[M[P]]);x[k[P]]=D[0X1][D[0X3]];P+=0X1__;(x)[0X4__]=(x[M[P]]..x[0x3]);P+=0B1__;D=(b[M[P]]);D[0X1][D[0b1_1]]=(x[k[P]]);P+=0X1_;P=k[P];end;end;else if d<0X6 then if d~=5 then local D=b[M[P]];x[k[P]]=(D[1][D[0x3]]);P+=1;x[M[P]]=(x[0X4]+j[P]);P+=1;D=b[M[P]];(D[0B1])[D[0X3]]=(x[k[P]]);P+=0X001;D=(b[o[P]]);(x)[0X4]=(D[0X1][D[3]]);P+=1;(x)[4]=(x[M[P]]..x[o[P]]);P+=1;D=(b[o[P]]);D[0X1][D[0X3]]=x[0X4];P+=0X1;P=k[P];else if not(O)then else for D,T in O do if not(D>=1)then else(T)[1]=T;(T)[2]=x[D];(T)[0B11]=2;O[D]=nil;end;end;end;return;end;else if d>=0x7 then if d~=0X8 then x[M[P]]=b[o[P]];else local O=b[M[P]];x[k[P]]=O[0B1][O[0B11]];P+=1;for d=o[P],M[P]do x[d]=(nil);end;P+=0X1;R={[0X1_]=q,[0X4]=l,[0B101]=R,[0X3]=C};Q=(0X1);O=Z[0X1][0X24](function(...)Z[3]();for R,q in...do(Z[0b11])(true,R,q);end;end);(O)(x[Q],x[Q+1],x[Q+0x2]);l=O;P=M[P];end;else local Q=(o[P]);local R,q,O=l();if not(R)then else(x)[Q+1]=q;x[Q+0x2]=O;P=M[P];end;end;end;end;P+=0B1;end;end);end;end;end;else if not(c>=0X12)then if not(c<0XF)then if not(c<0X10)then if c==17 then F=(function(...)local Q=Z[0B1][0X01](G);local x;local R=0B1__;repeat local l=(J[R]);if l>=0B01__00 then if not(l>=0X6)then if l~=0x5 then(Q)[1]=b[k[R]];R+=0x1;(Q)[0x1]=Q[0x1]+N[R];R+=0B1;Q[0B10]=b[o[R]];R+=0X1;Q[0X1]=(Q[0X1]+Q[2]);R+=0x1;R=(k[R]);else if x then for P,q in x do if not(P>=0X1)then else q[0x01]=q;q[0x2]=Q[P];q[0x3]=(2);x[P]=nil;end;end;end;return Q[k[R]];end;else if l~=0x7 then R=(k[R]);else(Q)[o[R]]=(b[k[R]]);R+=0B1;(Q)[o[R]]=not Q[k[R]];R+=1;if not(not Q[0b1])then else R=(M[R]);end;end;end;else if not(l>=0X2)then if l==0X1 then Q[0X1]=(b[k[R]]);R+=1;(Q)[M[R]]=(Q[k[R]]<V[R]);R+=1;if not(not Q[0X1])then else R=M[R];end;else(Q)[o[R]]=b[k[R]];end;else if l~=3 then(Q)[k[R]]=N[R];else if not(Q[o[R]])then else R=M[R];end;end;end;end;R+=1;until false;end);else F=(function(...)local Q=Z[0B1][1](G);local x;local R=(0B1);local l=0X1;local P;local q;repeat local O=J[R];if O>=2 then if O==0X3 then x,q=Z[0X1_][0x23__](...);R+=0b1;Q[0x2]=(q[0x1]);R+=0B1;local x=b[k[R]];Q[0X3]=(x[0B1_][x[3]]);R+=1;if not(not(Q[0X3_]<Q[2]))then else R=(k[R]);end;else if P then for x,q in P do if not(x>=0B1)then else q[1]=q;q[0B10]=Q[x];(q)[0X3]=0x2;(P)[x]=(nil);end;end;end;return;end;else if O==1 then Q[3]=(b[M[R]][Q[0x2]]);R+=0X1;local x=(b[k[R]]);Q[0X4]=(x[0X001][x[0B11__]]);R+=0B1__;Q[0X5]=(Q[0x2]+N[R]);R+=1;x=0X0;l=5;local q,O=Z[1][0X23](Q[0X4](Z[0X1_][12](Q,0x5,l)));q+=3;l=(q);for C=4,q do x+=1;(Q)[C]=O[x];end;R+=0X1;if not(P)then else for x,q in P do if not(x>=0B001)then else(q)[0B1_]=q;(q)[0X2]=(Q[x]);q[3]=(0X2);(P)[x]=(nil);end;end;end;return Z[0X1][12](Q,0X3,l);else R=(k[R]);end;end;R+=0X1;until false;end);end;else F=function(...)local Q,x,R,l,P=0X1,(Z[0X1][1](G));local q,O;while true do local C=J[Q];if not(C>=0B11)then if not(C>=0X1)then Q=(o[Q]);else if C==0X2 then q=l[0B100];R=l[0B1_];P=(l[0x3]);l=l[5];else local d=false;q+=P;if P<=0B0 then d=(q>=R);else d=q<=R;end;if not(d)then else x[o[Q]+0B011]=(q);Q=M[Q];end;end;end;else if not(C>=5)then if C==0B100 then local d=b[o[Q]];(d[0B1])[d[0B11]]=(x[M[Q]]);else x[0B101]=(b[o[Q]][x[0B100]]);Q+=0X1;local d=b[M[Q]];(x)[6]=(d[0B01][d[3]]);Q+=0X1;if not(not(x[0x6_]<x[5]))then else Q=M[Q];end;end;else if C~=0x6 then if O then for C,d in O do if C>=0X1 then(d)[0X1]=(d);(d)[0X2]=x[C];(d)[0X3]=2;O[C]=(nil);end;end;end;return;else x[0X1]=(j[Q]);Q+=0B1;(x)[0x2]=b[o[Q]];Q+=1;(x)[0x2]=(#x[2]);Q+=0B1;x[0x3]=V[Q];Q+=0b1_;l={[0x1]=R,[0X3]=P,[0X4]=q,[0B101]=l};P=(x[0b11]);R=x[0B10];q=x[1]-P;Q=(o[Q]);end;end;end;Q+=0X1;end;end;end;else if c<0Xd then F=(function(...)local Q,x,R,l,P,q,O,C=Z[0x001][0X1](G),0X1,0X1,(0X0);local d,D,T,E=1;repeat local H=(J[R]);if H<0x60 then if not(H>=0b110000_)then if not(H>=0B1_100_0)then if H<0xC then if H>=0X6 then if H<0X9 then if H<0x7 then(Q)[k[R]]=nil;elseif H==8 then Q[o[R]]=(k);else(Q)[o[R]]=(setfenv);end;else if not(H>=0xA)then Q[k[R]]=base64_decode;else if H==0b1011 then Q[M[R]]=(b[k[R]][Q[o[R]]]);else Q[M[R]]=(loadfile);end;end;end;else if not(H<0B11)then if not(H>=0B010__0)then local Y=j[R];local z=Y[0B1001];Y=#z;local r=(Y>0X0 and{});if not(r)then else for _=0X1,Y do local K=(z[_]);local z=K[0x1];local t=K[0x3];if z==0X0 then if not q then q={};end;K=q[t];if not(not K)then else K=({[1]=Q,[0X3]=t});q[t]=(K);end;r[_-0x1]=(K);elseif z~=0B001 then(r)[_-0b1]=b[t];else r[_-0X1]=(Q[t]);end;end;end;Y=L[V[R]](r);(Q)[M[R]]=(Y);elseif H==0X5 then if q then for Y,z in q do if Y>=0B1 then z[0X1]=z;z[2]=(Q[Y]);(z)[0B011]=0x2;q[Y]=(nil);end;end;end;local Y=M[R];return Q[Y](Z[0x1][0xC](Q,Y+0X1,x));else local Y,z,r,_,K,t=0b10001;while true do if Y==0X11 then z=0x0;Y=-4294410158+(Z[0x1][0X21][0x09]((Z[0X1][33][10](Y,(Y)))+H+Y));continue;elseif Y==0X3C then _=4503599627370495;Y=0B1100111+(((H>H and H or Y)==Y and Y or Y)-Y+H);continue;elseif Y==0B1101_011 then z*=_;Y=(-0X1D+((Z[0x1][0b100001][0Xb](H+Y+Y,(H)))~=H and Y or Y));elseif Y==78 then _=Z[1][0X21];Y=0b111000+((Z[0b1][0X21][12]((Z[0X1][0X21][0B110](Y-Y,H,Y))))+H);elseif Y==0B1010101 then r=0X006;break;end;end;Y=0X46;while true do if Y==70 then _=(_[r]);Y=39+((Z[0X1][0b10000_1][0Xb]((Z[0X1][0X21][0x8](Y))-Y,(H)))<=H and H or Y);elseif Y==0B1101101 then r=Z[0X1][0X21];Y=0x6c+((Z[0X1][0B100001][0X7]((Z[0X1][0X21][12](Y))>=Y and H or H,(H)))-H);continue;elseif Y==0X68 then K=0B111;Y=0X27+(Z[0X1][0X21][13]((Z[0X01][0B100001][0B1101](H,Y,H))-H+H,Y,H));continue;elseif Y==0X27 then r=(r[K]);break;end;end;Y=0x35;while true do if Y==0B1__10101 then K=(Z[0b1][0b0_0100001]);Y=-4294967231+(Z[1][0B100001][0Xe]((Z[0X01][0X21][9]((Z[0X1][33][9](H))+Y))));elseif Y==0X10 then t=(0x8);Y=-0X13ffe1+(Z[0B1_][0X21][0x6]((Z[0X001][0X0_021][11]((Y>H and H or Y)+Y,(Y))),Y));elseif Y==0X2F then K=K[t];Y=0X42+(Z[0X1__][0X21][0Xd]((Z[0B1][0x21][13]((Z[0b1][0X21][0xe](H+H)),H))));continue;elseif Y~=66 then else t=H;break;end;end;local s=H;Y=(0X6c);while true do if Y~=0x6c then s=(J[R]);break;else t+=s;Y=-4294967105+(Z[0X1][33][0X6](((H==Y and H or H)>=Y and H or H)-Y,H));continue;end;end;local u=0b1111110;t+=s;s=J[R];t+=s;Y=0X19;while true do if Y>0x19 then t=(J[R]);break;elseif not(Y<36)then else K=K(t);Y=(0B11+(H+H+Y+H-H));end;end;r=r(K,t);K=(J[R]);r+=K;K=J[R];t=J[R];Y=(0X7c);while true do if Y==0B1111100 then _=_(r,K,t);Y=0x2__b+(Z[0B1][0B100001][8]((Z[0X1][0X21][12](H))+Y+H));continue;elseif Y==43 then r=(H);Y=(0B1110__+(Z[0X1][0X21][0Xb](H-H-Y+Y,(H))));continue;elseif Y==0b0011_10 then _+=r;break;end;end;z+=_;u+=z;Y=0X5E;while true do if Y==0B1011__110 then(J)[R]=(u);Y=-0B110101+(Z[0X1][0X021][0B11__01]((Z[1][0X21][0x0__6]((Z[1][0X21][0XE](H,Y,H)),Y))-H,Y,Y));continue;elseif Y==37 then u=Q;break;end;end;z=(M[R]);Y=(0X7);while true do if Y==0X7 then _=(Q);Y=-0X6f+(Z[1][0x21__][0B1101]((Z[1][33][0Xb](H+Y,(H)))-Y));elseif Y==0X3a then r=(o[R]);break;end;end;_=(_[r]);Y=(0B001011110);while true do if Y<0X5_E then u[z]=(_);break;elseif not(Y>0B100101)then else _=#_;Y=0x81+((Z[0B1][0X21][0X8]((Z[0b1][0X21][0xb__](H,(H)))+H))-Y);continue;end;end;end;else if not(H>=1)then(Q)[k[R]]=(isfolder);else if H==0x2 then Q[k[R]]=checkcaller;else local Y=o[R];(Q)[Y]=Q[Y](Q[Y+1],Q[Y+2]);x=Y;end;end;end;end;else if H>=0X12 then if H<21 then if H>=0B10011 then if H==0B0010100 then Q[o[R]]=j[R]<=N[R];else Q[o[R]]=newcclosure;end;else Q[o[R]]=(error);end;else if H>=0x16 then if H==0B10111__ then if not(q)then else for Y,z in q do if Y>=0X1 then z[1]=z;z[2]=(Q[Y]);z[0X3]=0X2;(q)[Y]=(nil);end;end;end;return Q[o[R]]();else Q[o[R]]=(makefolder);end;else Q[k[R]]=Q[M[R]]+Q[o[R]];end;end;elseif not(H>=0B01111)then if not(H<13)then if H~=14 then Q[M[R]]=j[R]*Q[o[R]];else(Q)[k[R]]=(compareinstances);end;else Q[M[R]][Q[o[R]]]=(Q[k[R]]);end;else if H<0b10000 then local Y=(b[o[R]]);(Y[0X1][Y[0X3]])[Q[k[R]]]=Q[M[R]];else if H~=0B10001 then(Q)[M[R]]=setfflag;else local Y=b[k[R]];(Q)[o[R]]=Y[0X1][Y[0X3]][Q[M[R]]];end;end;end;end;else if not(H>=0X0024)then if H<0X1e then if not(H>=27)then if not(H>=25)then(Q)[k[R]]=http_request;else if H==0x1a then Q[o[R]]=Q[k[R]];else local Y=b[k[R]];(Y[0x1])[Y[0X3]]=(Q[M[R]]);end;end;else if not(H<28)then if H==29 then local Y,z=o[R],(0x0);for r=Y,Y+(M[R]-0b1)do(Q)[r]=P[d+z];z+=0X1;end;else(Q)[k[R]]=(N[R]%V[R]);end;else if Q[M[R]]==V[R]then else R=(k[R]);end;end;end;else if not(H>=0X21)then if H>=0x1f then if H==0x20 then(Q)[M[R]]=unpack;else if q then for Y,z in q do if not(Y>=0x1_)then else(z)[0x1]=(z);(z)[2]=(Q[Y]);z[0X3]=0X2;(q)[Y]=nil;end;end;end;local Y=(M[R]);return Z[0x1][0b1100](Q,Y,Y+o[R]-0X2_);end;else(Q)[M[R]]=(Q[o[R]]*Q[k[R]]);end;else if H>=0X2__2 then if H~=0X23 then Q[o[R]]=(ypcall);else for Y=o[R],k[R]do Q[Y]=(nil);end;end;else local Y,z=o[R],(k[R]);local r=Q[Y];Z[0X1][0B10111__](Q,Y+0X1,Y+M[R],z+0B1,r);end;end;end;else if H<0x2A then if not(H<0x27)then if H>=0X028 then if H~=41 then(Q)[o[R]]=tostring;else(Q)[k[R]]=(Q[o[R]]~=Q[M[R]]);end;else(Q)[o[R]]=(Z[4](Q[k[R]],Q[M[R]]));end;else if H>=37 then if H~=0x2__6 then local Y=b[k[R]];(Y[1])[Y[0B11]]=N[R];else Q[k[R]]=(N[R]+V[R]);end;else(Q)[o[R]]=(N[R]>Q[k[R]]);end;end;else if H>=0B101101 then if not(H<0b101110)then if H~=0B101111 then if Q[k[R]]~=Q[M[R]]then R=o[R];end;else if not(Q[k[R]])then else R=(o[R]);end;end;else(Q)[o[R]]=not Q[k[R]];end;else if not(H>=43)then if q then for Y,z in q do if not(Y>=0b1)then else z[0B1]=(z);z[0b1_0]=(Q[Y]);z[3]=0B1_0;(q)[Y]=nil;end;end;end;local Y=k[R];return Q[Y](Q[Y+1]);else if H~=0b1011__00 then(Q)[M[R]]=L.jh;else Q[o[R]]=sethiddenproperty;end;end;end;end;end;end;else if not(H>=72)then if H<60 then if not(H<0X36)then if not(H<0B11100__1)then if not(H<0B111010)then if H==59 then Q[o[R]]=(rawequal);else if not(q)then else for Y,z in q do if not(Y>=0X1)then else(z)[0B1]=(z);z[0X2]=(Q[Y]);(z)[0X3]=(0X2);q[Y]=(nil);end;end;end;return;end;else Q[k[R]]=({});end;elseif not(H<55)then if H==0B111000 then Q[k[R]]=Q[o[R]]-N[R];else(Q)[o[R]]=(readfile);end;else Q[M[R]]=Q[o[R]]>=Q[k[R]];end;else if not(H<0x3_3)then if H<0X34 then local Y=o[R];x=(Y+k[R]-0x1);Q[Y](Z[1][0Xc](Q,Y+1,x));x=(Y-1);else if H~=0b110101 then Q[M[R]]=(j[R]<V[R]);else Q[o[R]]=getsenv;end;end;else if not(H>=0x31)then(Q)[k[R]]=(tonumber);elseif H~=0x0_032 then Q[M[R]]=Q[k[R]]*V[R];else(Q)[k[R]]=(Q[M[R]]<V[R]);end;end;end;else if not(H>=0X42)then if not(H<0x3F)then if H>=0X40 then if H==0b1__000001 then Q[M[R]]=(j[R]-Q[o[R]]);else if not(Q[M[R]]<Q[o[R]])then R=(k[R]);end;end;else Q[o[R]]=L.sh;end;elseif not(H>=61)then(Q)[o[R]]=(Q[M[R]]<=j[R]);else if H==0B111110 then(Q)[k[R]]=(Z[0X4](Q[M[R]],V[R]));else(Q)[M[R]]=(Q[k[R]]==Q[o[R]]);end;end;else if H<0X45 then if H>=67 then if H~=0B1000100 then Q[k[R]]=Z[0X1][0X1](o[R]);else Q[k[R]]=request;end;else(Q)[M[R]]=j[R]==V[R];end;else if not(H>=0X46)then local Y=(k[R]);local z,r,_=T();if not(z)then else(Q)[Y+0b1]=(r);Q[Y+0b10]=_;R=(M[R]);end;elseif H~=0X47 then(Q)[o[R]]=j[R]^Q[M[R]];else Q[k[R]]=L.gh;end;end;end;end;else if not(H<0X54)then if not(H>=0X5A)then if not(H<0x57)then if H<0X58 then(Q)[M[R]]=(print);else if H~=0X59 then Q[o[R]]=(Q[M[R]][j[R]]);else(Q)[k[R]]=V[R]*N[R];end;end;elseif H<0B1010101 then(Q)[k[R]]=L.fh;else if H~=0X56 then Q[M[R]]=(setrawmetatable);else(Q)[k[R]]=(Q[o[R]][Q[M[R]]]);end;end;else if not(H>=93)then if not(H<0x5B)then if H==0X5_c then(Q)[M[R]]=Q[k[R]]/V[R];else local Y=(M[R]);(Q)[Y]=Q[Y](Z[0B1][12](Q,Y+1,x));x=Y;end;else local Y=(b[k[R]]);(Q)[M[R]]=(Y[0x1][Y[0X3]]);end;else if H<0x5E__ then Q[o[R]]=(Q[M[R]]<=Q[k[R]]);else if H~=0X5f then(Q)[o[R]]=CFrame;else(Q)[M[R]]=j[R]>=V[R];end;end;end;end;else if not(H>=78)then if H>=75 then if H>=0X004c then if H~=0X04D then Q[o[R]]=(game);else Q[M[R]]=setreadonly;end;else(Z[0X1][0B100001])[o[R]]=Q[M[R]];end;else if not(H>=0x49)then(Q[k[R]])[Q[M[R]]]=V[R];else if H~=74 then(Q)[o[R]]=(P[d]);else if not(N[R]<Q[k[R]])then R=o[R];end;end;end;end;else if H<0B00101_0001 then if H>=0X4F then if H==0X50 then local Y=(M[R]);Q[Y]=Q[Y](Q[Y+0B1]);x=Y;else Q[o[R]]=(writefile);end;else local Y,z=O-l-0B1,k[R];if Y<0X0 then Y=(-0B1);end;local r=0X0;for _=z,z+Y do(Q)[_]=(P[d+r]);r+=0X1;end;x=(z+Y);end;else if not(H<82)then if H==0X53 then(Q)[M[R]]=getrawmetatable;else(Q[k[R]])[V[R]]=(N[R]);end;else l=k[R];O,P=Z[0X1][35](...);for Y=0x1,l do Q[Y]=(P[Y]);end;d=(l+0B1);end;end;end;end;end;end;else if not(H>=0x90)then if not(H>=0X78)then if H>=0x6_C then if not(H>=0X72)then if not(H<0B1101111)then if H<0X70 then Q[M[R]]=getcallingscript;else if H==113 then local l={...};for d=0B1__,k[R]do Q[d]=l[d];end;else Q[k[R]]=(task);end;end;else if not(H>=0X6d)then local l,d,Y,z,r,_,K,t=0X03,0xf_;while true do if l<0x67_ and l>0x28 then K=(Z[0X1][0x2_1]);l=(-0x400_00044+(Z[0X1][0X21][0x006]((Z[0B1][0X21][0Xe]((Z[0b1][33][0B1111](l,o[R]))+H,l,l)))));elseif l>0b101101 then _=Z[0X1__][33];break;else if l<0x6 then Y=(0X4D_);l=-4294967289+(Z[0X1][0X21][0X6]((Z[0b1][0X21][0X7](l>=l and l or l,(l)))-l,H,o[R]));else if l>0x6 and l<0B101101 then _=(0x8);K=(K[_]);l=-4294967170+(Z[0B1][33][0XE]((Z[0X1][0X21][0X009]((Z[0B1][0B0100001][0x8__](l-l)))),o[R],l));else if l>3 and l<0X28 then r=0X0;K=(4503599627370495);r*=K;l=(0x27+((H<H and H or H)+H-l==l and o[R]or l));continue;end;end;end;end;end;local s=7;_=(_[s]);l=104;while true do if l>=0X6_8 then s=(Z[0X1][0b100001]);z=0Xa;l=0B100111+(Z[0X1][0X21][0Xf]((Z[0B1][33][0B1__010]((H~=l and l or o[R])-l,o[R])),o[R]));continue;else s=s[z];break;end;end;z=Z[1][33];z=(z[d]);l=(0X31);while true do if l==49 then d=J[R];l=0Xd+(((l~=l and l or o[R])-H==l and l or l)+o[R]);else if l==0b1011100_ then t=(J[R]);break;end;end;end;d-=t;l=0X001a;repeat if not(l<=0X1a)then if l~=0X5c then t=(o[R]);l=-77+((Z[0B1][0X21][10]((Z[0X1][33][0Xe](o[R]>=H and l or H,H,o[R])),o[R]))+l);else z=z(d,t);break;end;else t=(o[R]);d+=t;l=0x13+((Z[0X1][0X21][11]((Z[0X1][0X21][0b111](l>H and H or l,o[R])),(l)))<H and o[R]or l);continue;end;until false;d=o[R];l=0X56;repeat if l<0X56 then z=(o[R]);l=(-0x170+(Z[0X1][33][0XA]((H+o[R]>H and l or H)+l,o[R])));continue;else if l>119 then s=(s>z);l=119+(Z[0X1][33][0b111]((Z[1][0X21][0XD](o[R]+l))-o[R],o[R]));continue;elseif l>61 and l<0X77 then s=s(z,d);l=-0B0111001+((Z[1][33][0B11__01]((Z[1][0B100001][0Xc]((Z[0X1][0X21][0X7](l,o[R]))))))+l);continue;else if l<0X078 and l>0X56 then if s then s=(o[R]);end;break;end;end;end;until false;if not s then s=o[R];end;l=0x1_E;while true do if not(l>0X0_032)then if not(l>0)then s=(H);l=-4294966768+(Z[0B1][0X021][0XA]((Z[0X1][0B100001][0b1001]((Z[0X1][0X21][0B1101](l~=l and o[R]or H)))),o[R]));else if l~=50 then z=(o[R]);l=(0B1000111+((Z[1][0X21][9]((Z[1][0X21][10](l,(l)))>l and l or H))<l and H or o[R]));continue;else K=K(_);l=0B1101001+(Z[0X1][33][0B111]((Z[1][33][0B1101](l,l,o[R]))-o[R]+l,o[R]));continue;end;end;else if l<=0X5F_ then if l>0X34 then _-=s;l=(0X32+(Z[0B1][0X21][0x007]((Z[0x1][0x2__1][0XE](H<H and H or l))-o[R],o[R])));continue;else Y+=r;break;end;else if not(l<0X69_)then r+=K;l=(0b1__10_001+((Z[0B1][0X21][0X00E](H+l))-l-l));else _=_(s,z);l=-404+((Z[0X1][0X21][14]((Z[1][33][0Xa](l,o[R]))))-l+l);continue;end;end;end;end;(J)[R]=(Y);l=(0b11001);repeat if l==0b11001 then Y=(Q);l=0B00_1__00100+(Z[0X1][0X0021][6]((Z[0X1][0B1_000__01][0B1000]((Z[0X1][0X21][0X8__](l+l))))));continue;elseif l==0X24 then r=(o[R]);K=writefile;l=-0b11010101+(Z[0X1][0B100001][0B110__1]((Z[0B1][0X21][0xa]((Z[1][0x21][0B110](o[R]))+l,o[R]))));continue;else if l~=0X33 then else Y[r]=(K);break;end;end;until false;else if H~=0X6e_ then O,P=Z[1][0B100_011](...);else if Q[o[R]]~=N[R]then else R=k[R];end;end;end;end;else if not(H>=117)then if not(H>=0X73)then Q[M[R]]=rawset;else if H==0B1110100 then(Q)[k[R]]=(M);else Q[o[R]]=(Q[M[R]]..Q[k[R]]);end;end;else if H<0X76 then Q[M[R]]=(tick);else if H==0X077 then(Q)[k[R]]=(-Q[M[R]]);else local l=(N[R]);local P=l[0x9];local O=(#P);local d=O>0X0 and{};local Y=Z[0x2](l,d);(Q)[o[R]]=(Y);if not(d)then else for z=0X1,O do l=(P[z]);Y=(l[0x1]);local P=(l[3]);if Y==0 then if not(not q)then else q=({});end;local l=q[P];if not(not l)then else l=({[0b1]=Q,[0x3]=P});(q)[P]=l;end;(d)[z-0X1]=(l);else if Y~=0x1 then d[z-0b1]=b[P];else(d)[z-0B1]=(Q[P]);end;end;end;end;end;end;end;end;else if not(H<0X66)then if H<0X69 then if H<103 then(Q)[M[R]]=V[R]~=j[R];else if H~=0X68 then(Q)[o[R]]=(Ray);else(Q)[o[R]]=(Q[M[R]]-Q[k[R]]);end;end;else if H<106 then if Q[M[R]]~=Q[o[R]]then else R=k[R];end;else if H==0X6B then(Q)[M[R]]=Q[o[R]]%Q[k[R]];else Q[o[R]]=workspace;end;end;end;else if not(H<99)then if H<0x64 then Q[M[R]]=(Q[o[R]]==j[R]);else if H==0X65 then(Q)[o[R]]=(j[R]);else local l=false;T+=C;if not(C<=0X0)then l=T<=E;else l=(T>=E);end;if not(l)then else Q[k[R]+0X3]=(T);R=o[R];end;end;end;else if H>=0X61 then if H==0B11_00010 then Q[k[R]]=b[M[R]][V[R]];else Q[M[R]]=(Q[o[R]]<Q[k[R]]);end;else(Q)[o[R]]=hookfunction;end;end;end;end;else if not(H<132)then if not(H<0b10001010)then if H>=0B10__001101 then if H<0x8e then Q[k[R]]=Z[1][0X21][M[R]];else if H==0b10001_111 then(Q)[o[R]]=(Drawing);else Q[k[R]]=Vector3;end;end;else if H>=0b100010__11 then if H~=0X8C__ then if not Q[k[R]]then R=(M[R]);end;else x=(k[R]);(Q[x])();x-=0B1;end;else Q[o[R]]=f;end;end;else if H>=135 then if not(H<0X8_8)then if H~=0X89__ then(Q)[M[R]]=V[R]..Q[k[R]];else(Q)[k[R]]=next;end;else Q[o[R]]=(loadstring);end;elseif not(H>=0x85)then Q[M[R]]=(xpcall);else if H~=0b1000011__0 then(Q)[o[R]]=(Q[k[R]]^Q[M[R]]);else Q[M[R]]=(#Q[o[R]]);end;end;end;else if H<0B1111110 then if H<0x7B then if not(H>=0X79)then(Q)[o[R]]=j[R]>N[R];else if H~=0X7a then local f=(b[o[R]]);f[0X1][f[0B11]][Q[M[R]]]=(j[R]);else local f,l=k[R],(o[R]);x=f+l-1;if q then for l,P in q do if l>=0X1_ then P[0B1]=P;P[0X2]=Q[l];P[0B11]=2;(q)[l]=nil;end;end;end;return Q[f](Z[0x1][12](Q,f+1,x));end;end;else if H<0B1111100__ then(Q)[k[R]]=(Q[M[R]]~=V[R]);else if H~=0X0__07d then(Q)[k[R]]=V[R]==Q[M[R]];else Q[o[R]]=Q[k[R]]..N[R];end;end;end;else if H<0X81 then if not(H<0X7f_)then if H==0X80 then x=(M[R]);(Q)[x]=Q[x]();else(Q)[o[R]]=getgc;end;else Q[o[R]]=b[M[R]];end;else if not(H>=0X82)then Q[k[R]]=(debug);else if H==131 then D={[0B1]=E,[0X3]=C,[0X5__]=D,[0B0100]=T};x=o[R];local f=Z[0X1][36](function(...)Z[3]();for l,P in...do(Z[0x3])(true,l,P);end;end);f(Q[x],Q[x+0B1],Q[x+0B10]);T=f;R=k[R];else(Q)[M[R]]=L.zh;end;end;end;end;end;end;else if H>=0B10101000 then if H<180 then if H>=0b10101110 then if H>=0xb1 then if H<0xb2 then Q[o[R]][j[R]]=Q[M[R]];else if H==0XB3 then(Q)[o[R]]=(Q);else(Q)[M[R]]=(j[R]+Q[o[R]]);end;end;else if not(H<0Xaf)then if H==0b10110_000 then(Q)[M[R]]=(assert);else local f=(k[R]);Q[f](Q[f+0X1],Q[f+2]);x=(f-0x1);end;else local f,l=o[R],(M[R]);local P=(Q[f]);Z[0X1][23](Q,f+0b1,x,l+0X1,P);end;end;else if H<0XAb then if not(H<0XA9)then if H~=0B10101010 then local f,l,P,O,d,Y,z,r,_=0B1101001,0B1011,0x8,10,0B0,(110);while true do if Y==110 then _=4503599627370495;Y=-0XdBfec_0+((Z[0B1][33][0xE]((Z[0B1][33][0XB](Y,o[R]))-H,o[R]))-o[R]);continue;elseif Y~=0B111_0_101 then else d*=_;_=(Z[1][0X21]);break;end;end;Y=0X61;local K;while true do if Y>0X25 and Y<0X4_c then r=0B111;Y=(-0X5D+(Z[1][0B10000__1][0X6]((Z[0x001][0B100001][6](Y+Y,o[R],Y))+Y,Y,Y)));elseif Y<0X61 and Y>0x4c then P=P[r];Y=(-4294967241+(Z[0b001][0x21][9](Y+o[R]-Y<o[R]and Y or o[R])));elseif Y<94 and Y>0B1110__11 then P=Z[0X1][33];Y=(0XF5+((Z[0X1][0X21][0x8](H<=H and H or o[R]))-o[R]-H));continue;elseif Y>0X5E then _=_[P];Y=0X4c+(((Z[0B1][0X21__][0X00C](o[R]<=H and Y or Y))<Y and o[R]or Y)-o[R]);continue;elseif not(Y<0X3B)then else r=Z[0B1][0X21];break;end;end;Y=(0X61);while true do if Y==97 then r=r[O];O=(Z[1][33]);Y=0X3B+((Z[1][0X21][7](H,o[R]))-Y+Y+o[R]);elseif Y==0b1001100 then z=0Xa;Y=(-0X82_+(Z[1][33][0XD_]((Z[0X001][0B100001][0X6]((Z[0x1][0B100001][0xC](o[R]))+o[R],o[R],H)))));continue;elseif Y==0B111011 then O=(O[z]);Y=0X88+((Z[0B1][33][0Xd](Y+Y~=Y and o[R]or Y,Y))-Y);continue;elseif Y~=0x05E then else z=Z[0X1][0x21];break;end;end;Y=(0b0__010110);while true do if Y==0b10110 then z=z[l];Y=0X67+((Z[0B1][0b100001][0B1000]((Z[0B1][0X21][0Xb](o[R],(Y)))-o[R]))>=Y and Y or Y);elseif Y==0X7D then l=J[R];Y=(-0X71+((Z[0X1][0X021][0X8]((Z[0X1][0B100001][0B1100](o[R]+o[R]))))~=Y and H or Y));continue;elseif Y==0X3__8 then K=o[R];Y=-0X104+(Y+H+o[R]+Y+o[R]);continue;elseif Y~=0B110111 then else z=z(l,K);break;end;end;Y=28;while true do if Y<0B101110 then l=o[R];Y=-94+((Z[0x1][0x21][10]((Z[0x1][0B1__00001][0X8](Y))+Y,o[R]))<o[R]and H or H);continue;elseif Y>0x2_e then z+=l;Y=-3014779+((Z[1][33][10]((Y>=Y and Y or Y)+o[R],o[R]))+H);elseif Y<0x4B and Y>28 then l=o[R];z+=l;l=(J[R]);z-=l;break;end;end;Y=0B111_0;while true do if Y==0X0E then l=(o[R]);O=O(z,l);Y=0B10101+((((Z[0b1_][0B100001__][0xd](Y,o[R]))~=Y and Y or H)>=Y and Y or o[R])-Y);continue;elseif Y~=0X15 then else z=o[R];break;end;end;r=r(O,z);Y=0B1101000;while true do if Y==0X68 then O=(o[R]);Y=(-0B1+(Z[0X1][0x21][0Xd]((Z[0x1][33][6]((Z[0X1][0X21][0B1000](o[R]<=Y and Y or Y)),o[R],H)),Y)));continue;elseif Y==0X27 then P=P(r,O);Y=(-4294410110+(Z[0x1][33][0b1101]((Z[0X1][0B100001][0xA]((Z[0X1][0X21_][0B1001](o[R])),o[R]))-Y)));continue;elseif Y==0X5A then _=_(P);Y=0x1A1+((Z[0B1][0X21][0b1110](H,H,o[R]))-H-H+o[R]);elseif Y==0B1110001 then d+=_;Y=(-0x2FFfD3+((Z[0X1][33][10]((Z[0X01][0X21][14]((Z[0B1][33][0B1110](o[R],Y,Y)),Y)),o[R]))-o[R]));elseif Y~=0X1c then else f+=d;break;end;end;(J)[R]=f;Y=(68);while true do if Y>68 then if Y==0X53 then d=o[R];Y=(-0B11010_101+(Z[0X1][0X21][0x7]((Z[1][0B100001][15](H-o[R]+Y,o[R])),o[R])));else f[d]=(_);break;end;else if Y>0x16 then f=Q;Y=(0x51__+(Z[1][0X21][0x08]((Z[0x001][0x21][0xC](Y-Y))+Y)));else _=workspace;Y=(0X78+((Z[0X1__][33][12](o[R]+H>H and o[R]or Y))-Y));continue;end;end;end;else Q[k[R]]=(o);end;else Q[M[R]]=J;end;else if not(H<172)then if H~=173 then Q[k[R]]=L.rh;else(Q)[M[R]]=(cloneref);end;else(Q)[k[R]]=(type);end;end;end;else if not(H>=186)then if not(H>=0b10110111)then if H<0xB5 then Q[k[R]]=(Q[M[R]]+V[R]);else if H==0xb_6 then(Q)[M[R]]=Q[o[R]]>=j[R];else(Q)[k[R]]=(messagebox);end;end;else if H>=0Xb8 then if H==185 then(Q)[o[R]]=(getfenv);else if not(q)then else for f,l in q do if f>=1 then l[0X1]=l;(l)[0X2]=(Q[f]);(l)[0X3]=(0X2);(q)[f]=nil;end;end;end;return Q[M[R]];end;else(Q)[k[R]]=pcall;end;end;else if H>=0B1011_11_01 then if not(H<0B10111111)then if H~=0B1100__0000 then Q[k[R]]=select;else Q[k[R]]=(Instance);end;else if H==190 then local f=o[R];(Q[f])(Z[0b001][0B1100](Q,f+0x1,x));x=(f-0X1);else(Q)[o[R]]=j[R]~=Q[M[R]];end;end;else if H<0b10111011 then Q[k[R]]=rawlen;else if H~=0B10111100 then(Q)[o[R]]=(Color3);else local f=o[R];(Q[f])(Q[f+0X1]);x=(f-1);end;end;end;end;end;else if H>=0b10011100 then if not(H<0B010100010)then if H<165 then if H<0Xa_3 then T=D[0X4];E=(D[0x1]);C=(D[0X3]);D=D[0X05];elseif H~=0xa4 then(Q)[o[R]]=N[R]>=Q[k[R]];else local f,l=M[R],(Q[o[R]]);(Q)[f+0X1]=l;Q[f]=(l[j[R]]);end;else if H>=0xa6 then if H~=0xa7 then Q[o[R]]=(getconnections);else(Q)[o[R]]=(http);end;else R=o[R];end;end;else if H>=159 then if not(H<160)then if H~=0B1__0100001 then if not(not(V[R]<=Q[k[R]]))then else R=M[R];end;else Q[M[R]]=(clonefunction);end;else(Q)[o[R]]=Vector2;end;else if not(H<0X9d)then if H~=0B10011110 then local f,l,P,O,d=0b0,(0x74);while true do if l==116 then d=(4503599627370495);l=(-0B111__00010_+(Z[0x1][0X21][0xd]((Z[0X1][0B100001][13](H,l))+l+H)));continue;elseif l==0B1000011 then f*=d;l=(-4294967225+(Z[1][0B100001][0X9](H-H-H+H)));continue;elseif l==0B100011_0 then d=Z[0x1][33];l=0X65+(Z[0x1][0X21][0x7_]((Z[0X1_][33][0xA__](l+l,(0X11)))-H,(0b1__0011)));elseif l~=0X6d then else O=0B01000;break;end;end;local Y=7;l=0X38;while true do if l>0X2A then if l~=56 then O=J[R];l=(-0X73+((Z[0X1][33][0X9]((Z[0B1][0X21][0xC]((Z[0B1][0X21][0Xd](H))))))==l and H or H));else d=d[O];l=(-1744840+(Z[0B1][0B100001][0X006]((Z[0B1][0X0021][0XB](l+H,(0X0d)))-H,H)));end;else P=(H);break;end;end;O-=P;l=(0X5a);while true do if l==0b1011010 then P=(H);l=-0X123+((Z[0X1][0x21][6]((Z[0X1_][0x21_][6](H,H,H))+H))+l);elseif l==113 then O-=P;l=-0B11100001+(Z[0B1][0X21__][0B1101]((Z[0B1__][0x0021][0X6](l-H+H,H))));elseif l==0X1_c then P=J[R];l=-0XA5+((Z[0X1][0x21][0b1100](l))+H+l+l);continue;elseif l==0x4_B then O=(O~=P);if O then O=J[R];end;l=-111+(Z[0X1_][33][0X6]((l+H<=l and H or l)>=H and H or H,H));elseif l~=0X2e then else if not(not O)then else O=J[R];end;P=(J[R]);break;end;end;l=(39);while true do if not(l>46)then if l>0X1__C then if not(l<=39)then P=H;l=(0Xa4+(((Z[0X1][33][0XD](H+l,H))~=l and l or H)-H));else O-=P;P=(H);l=(0X5_7+(Z[0x1][0b100001][0b10_0_0]((Z[0B1][0B10__0001][9]((l~=l and H or l)>=H and H or l)))));end;else if not(l<=0X10)then O=O>=P;if not(O)then else O=H;end;l=0X2F+((Z[0X1][0B10000_1][0X8]((Z[0B1_][0B1__00001][0XF](l,(l)))+H))+l);continue;else d=d(O);l=-0X06e_+((Z[1][33][0Xd]((Z[0x1][0x21][0B1111]((Z[0X1][0B100001_][12](l)),(l)))))>l and H or H);end;end;else if l<=0X35 then if l>=0X35 then O+=P;l=-0x8d+(H+H-l-H<H and H or H);else f+=d;break;end;else if not(l<=0X4b)then if l~=113 then O+=P;l=(-321737+((Z[1][0x21][0xa]((Z[0X1][0X21__][0xd](H)),(21)))+H+H));continue;else P=J[R];l=(0Xb+(Z[0B1][0b100001][0Xe]((Z[0X1][0B100001][0XD](l-H<l and l or l,H,l)))));end;else if not O then O=H;end;l=(-329252818+(Z[0B1][33][0xe]((Z[1][0X21][15](H,(21)))+H-H)));continue;end;end;end;end;Y+=f;l=(0B1101101);while true do if l<104 then f=o[R];break;elseif l>104 then J[R]=Y;l=(0X105+((Z[1][33][0X7]((Z[0x1][0X21][13]((Z[0B001][0X21][0X6](H)),l)),(0X4)))-H));elseif l<109 and l>0X27 then Y=Q;l=(-4293263320+(Z[0B1][0B01__00001][0B1110]((Z[0B1][0x21][0B1010]((H~=H and H or l)-H,(0X11))),H,H)));continue;end;end;d=k;(Y)[f]=(d);else Q[o[R]]=j[R]-N[R];end;else local f=(o[R]);if not(q)then else for l,P in q do if not(l>=f)then else P[1]=(P);(P)[0X2]=Q[l];P[0X3]=0B0010;q[l]=nil;end;end;end;end;end;end;else if not(H>=150)then if not(H<0X93)then if not(H>=148)then Q[o[R]]=(Q[M[R]]%j[R]);elseif H~=0x95 then Q[k[R]]=(Q[M[R]]>Q[o[R]]);else Q[k[R]]=(typeof);end;else if H<145 then(Q)[k[R]]=(Q[o[R]]/Q[M[R]]);else if H==0b10__010010 then local f,l=k[R],(M[R]);if l~=0b0 then x=(f+l-0x1);end;local P,O,d=(o[R]);if l~=0X1 then O,d=Z[0X1][35](Q[f](Z[0X1][0Xc](Q,f+0B1,x)));else O,d=Z[0X1__][0X23](Q[f]());end;if P==0B1 then x=(f-0B1_);else if P~=0X00 then O=(f+P-0x2);x=(O+0b1);else O=O+f-0X1;x=(O);end;l=(0X0);for P=f,O do l+=0X1;Q[P]=(d[l]);end;end;else D={[0B1]=E,[0b11]=C,[5]=D,[0B100]=T};local f=(k[R]);C=Q[f+0X2]+0B0;E=(Q[f+1]+0x0);T=(Q[f]-C);R=(o[R]);end;end;end;else if H<153 then if not(H<151)then if H==0X9_8 then if not(q)then else for f,l in q do if not(f>=0B1)then else(l)[0B1]=l;(l)[0B10]=(Q[f]);l[0B11]=(0X2);(q)[f]=nil;end;end;end;return Z[0X1][0b1100](Q,M[R],x);else(Q)[o[R]]=(START_TICK);end;else b[k[R]][Q[M[R]]]=(Q[o[R]]);end;else if H<154 then(Q)[k[R]]=Q[o[R]]>N[R];else if H~=0X9b then local f=(k[R]);x=(f+o[R]-1);(Q)[f]=Q[f](Z[0B1][12](Q,f+0X1,x));x=(f);else Q[k[R]]=(rawget);end;end;end;end;end;end;end;end;R+=0X1;until false;end);else if c==0XE then F=(function(...)local f=Z[0X1][1](G);local Q;local x;local R,l=(0B01);while true do local P=(J[R]);if P>=0B10 then if not(P>=3)then R=(M[R]);else if P==0X4 then if Q then for q,O in Q do if q>=1 then O[0X1]=O;O[2]=f[q];O[0b11__]=0x2;Q[q]=(nil);end;end;end;return f[M[R]];else f[o[R]]=(f[k[R]]);end;end;else if P~=0X1 then l,x=Z[0b1][0X23](...);R+=0B1;local Q=0;f[2]=x[1+Q];Q+=1;(f)[0B11]=(x[0B1+Q]);Q+=0B001;(f)[0X4]=(x[0b1+Q]);Q+=0x1;f[5]=x[0X1+Q];Q+=0X1;R+=0b1;(f)[5]=f[0B10]%j[R];R+=0b1;f[6]=f[0X3]%j[R];R+=0b1;f[0X7]=(f[0X5]%j[R]);R+=1;(f)[8]=(f[0X6]%j[R]);R+=0X1;f[0B1001]=f[0X8]*V[R];R+=0x1;f[0x9]=(f[0B111]+f[0X09]);R+=0B1;(f)[0B01001]=b[k[R]][f[0B1001__]];R+=0X1;f[10]=(f[5]-f[7]);R+=1;f[2]=(f[10]);R+=0B1;(f)[0XA]=(f[0X6]-f[0B01000__]);R+=0X1;(f)[0Xa]=f[0B01010]/N[R];R+=1;(f)[0x3__]=f[10];R+=0B1;(f)[0B1010]=(f[0x2]%j[R]);R+=0X1;(f)[0X7]=f[0x00a];R+=0x01;f[0XA_]=(f[0x3]%j[R]);R+=0X1__;(f)[0B1000]=f[0Xa];R+=0X01;f[0B01010]=(f[0X7]+f[0x8]);R+=1;f[0Xa]=(b[o[R]][f[10]]);R+=0x1;(f)[0B10_10]=f[10]*j[R];R+=0x1;f[10]=(f[9]+f[0B1010]);R+=0X1;f[0X9]=(f[0B1010]);R+=0B01;f[0B00101_0__]=f[0B10]-f[0X7];R+=0x1;f[10]=f[0B1010]/j[R];R+=1;(f)[0X2]=(f[0B10_10]);R+=0B1;f[0b10_10]=f[0x3]-f[0X8];R+=0X1;f[0b1010]=(f[0B1010]/j[R]);R+=0x1;f[3]=f[0XA];R+=0X1;(f)[0XA]=f[0B10]%j[R];R+=0B1;(f)[11]=f[0x3]%j[R];R+=0X1;(f)[0Xa]=f[10]+f[0Xb];R+=1;(f)[7]=f[10];R+=0X1;(f)[0b1010]=b[o[R]][f[0b111]];R+=0X1;f[0B101__0]=f[0xA]*j[R];R+=0B1;(f)[0XA]=f[9]+f[10];R+=0x1;f[0x9]=f[0B101__0];R+=0X1;(f)[10]=(f[2]+f[0X3]);R+=1;f[0B1__010]=(f[0xA]-f[0B111]);R+=0X1;(f)[0B1010]=f[0B1010]/j[R];R+=0X1;(f)[10]=(b[o[R]][f[0B1010]]);R+=1;(f)[10]=(f[0b1010__]*j[R]);R+=0B1;f[0B1010]=f[0b100_1_]+f[10];R+=0X1;f[9]=(f[0XA]);R+=1;if not f[0b100]then R=(o[R]);end;else f[10]=(f[0X5__]+f[6]);R+=0X1;(f)[11]=(f[0B100]*f[0B100__1]);R+=0X1;(f)[0xA]=f[0Xa]-f[0B1011];R+=0X1__;(f)[0x9]=f[0XA];R+=0x1;R=M[R];end;end;R+=1;end;end);else F=(function(...)local f,Q=(Z[0x1][1](G));local x;local R=(1);local l,P;local q;while true do local O=J[R];if O>=0b101 then if not(O<0B1000)then if not(O>=0B1001)then f[0XA]=b[k[R]][f[0B01000]];R+=0B1;f[0xb_]=(b[o[R]][f[0x9]]);R+=0x1;f[10]=(f[0B1010]..f[0xb_]);R+=0B1;b[o[R]][f[4]]=f[10];R+=1;R=(o[R]);else if O==0XA then local C=(false);Q+=x;if x<=0 then C=(Q>=q);else C=(Q<=q);end;if not(C)then else(f)[k[R]+0x3]=Q;R=M[R];end;else Q=(P[0X4]);q=(P[0x1]);x=P[3];P=P[0X5];end;end;else if O>=0x6 then if O~=0b111 then if not(not(f[o[R]]<f[M[R]]))then else R=k[R];end;else f[1]=N[R];R+=0B1;f[0X2]=b[o[R]];R+=0B1;(f)[0X3]=V[R];R+=0X1;P={[0X4]=Q,[0X3]=x,[0X5]=P,[1]=q};x=(f[3]);q=(f[2]);Q=(f[1]-x);R=k[R];end;else(f)[k[R]]=b[o[R]];end;end;else if O>=0x2 then if O<3 then R=(o[R]);else if O==0x4 then f[0XB]=(b[o[R]]);R+=0x1;(f)[0x8]=f[0X8]-f[0xB];R+=1;R=(o[R]);else(f)[5]=b[k[R]][f[0x4]];R+=1;f[6]=(nil);R+=1;(b[o[R]])[f[0x4]]=(f[6]);R+=1;(f)[0X006]=f[4]*V[R];R+=1;f[7]=f[0B101]%V[R];R+=0x1;f[0X08]=(f[5]//j[R]);R+=0X1;f[8]=(f[0X8]+f[0x6]);R+=0x1;f[0X9]=f[0B111]+f[0X6];end;end;elseif O~=0X1 then(f)[0XB]=b[o[R]];R+=1;f[0X9]=f[0B1001]-f[0XB];R+=0B1;R=(o[R]);else if l then for Q,x in l do if not(Q>=1)then else(x)[0x1]=x;(x)[2]=(f[Q]);(x)[0B11]=(0X2);l[Q]=(nil);end;end;end;return;end;end;R+=1;end;end);end;end;end;else if not(c<0B10_1_01)then if not(c<0X16)then if c~=
